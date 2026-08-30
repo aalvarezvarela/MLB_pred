@@ -216,3 +216,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# MLB_pred: local raw-data copy. Regenerable from the StatsAPI backfill
+# scripts, so it is never a source of truth and never committed.
+# ---------------------------------------------------------------------------
+data/
+
+# Point-in-time snapshot archive (probables / lineups / rosters / transactions).
+# These CANNOT be regenerated after the fact -- back them up to S3 or Postgres,
+# but keep them out of git.
+snapshots/
+
+# Secrets
+config.secrets.ini
+secrets.ini
+.streamlit/secrets.toml
+
+# Bulk data formats
+*.parquet
+*.csv
+*.pkl
+*.joblib

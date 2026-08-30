@@ -1,0 +1,275 @@
+{
+ "props": {
+  "pageProps": {
+   "lineHistoryModel": {
+    "sportsbooks": [
+     {
+      "sportsbookId": 28,
+      "slug": "betmgm-sportsbook",
+      "vertical": "betting",
+      "name": "BetMGM",
+      "machineName": "betmgm",
+      "affiliateLink": "https://c.sportsbookreview.com/betmgm_usa",
+      "iconMonochrome": {
+       "type": "image/svg+xml",
+       "title": "Betmgm  Bg",
+       "fileName": "a456acc5-63b1-4be7-a190-7f9b43a58bc6.svg",
+       "alt": "",
+       "width": 0,
+       "height": 0,
+       "caption": ""
+      },
+      "iconColor": {
+       "type": "image/svg+xml",
+       "title": "Betmgm  Mono",
+       "fileName": "9fc98473-f1cf-4b89-b51d-8b96e7c13294.svg",
+       "alt": "",
+       "width": 0,
+       "height": 0,
+       "caption": ""
+      },
+      "iconColorBackground": {
+       "type": "image/svg+xml",
+       "title": "Sportsbook=bet Mgm, Size=default",
+       "fileName": "979b6d14-7c50-4391-8bfb-5eea8bc84405.svg",
+       "alt": "",
+       "width": 0,
+       "height": 0,
+       "caption": ""
+      }
+     },
+     {
+      "sportsbookId": 2,
+      "slug": "bet365",
+      "vertical": "betting",
+      "name": "bet365",
+      "machineName": "bet365",
+      "affiliateLink": "https://c.sportsbookreview.com/bet365_usa",
+      "iconMonochrome": {
+       "type": "image/svg+xml",
+       "title": "Bet365  Bg",
+       "fileName": "da55b1e0-d8ec-49e2-b8f4-87383cb0c9d6.svg",
+       "alt": "",
+       "width": 0,
+       "height": 0,
+       "caption": ""
+      },
+      "iconColor": {
+       "type": "image/svg+xml",
+       "title": "Sportsbook=bet365, Monochromatic=off",
+       "fileName": "2372b182-9bcd-461c-8288-db88ea8e1c6a.svg",
+       "alt": "",
+       "width": 0,
+       "height": 0,
+       "caption": ""
+      },
+      "iconColorBackground": {
+       "type": "image/svg+xml",
+       "title": "Sportsbook=bet365, Size=default",
+       "fileName": "c003328c-855e-45d4-8a43-49017ad143b7.svg",
+       "alt": "",
+       "width": 0,
+       "height": 0,
+       "caption": ""
+      }
+     }
+    ],
+    "lineHistory": {
+     "gameView": {
+      "gameId": 343244,
+      "leagueName": "MLB",
+      "startDate": "2025-08-27T17:05:00+00:00",
+      "awayTeam": {
+       "name": "Washington",
+       "fullName": "Washington Nationals",
+       "shortName": "WAS",
+       "displayName": "Washington",
+       "nickname": "Nationals",
+       "rank": -1
+      },
+      "awayTeamRotationNumber": "",
+      "awayStarter": {
+       "firstName": "Cade",
+       "lastName": "Cavalli",
+       "throwsShort": "R",
+       "firstInital": "C"
+      },
+      "awayTeamScore": 2,
+      "homeTeam": {
+       "name": "New York",
+       "fullName": "New York Yankees",
+       "shortName": "NYY",
+       "displayName": "NY Yankees",
+       "nickname": "Yankees",
+       "rank": -1
+      },
+      "homeStarter": {
+       "firstName": "Max",
+       "lastName": "Fried",
+       "throwsShort": "L",
+       "firstInital": "M"
+      },
+      "homeTeamRotationNumber": "",
+      "homeTeamScore": 11,
+      "gameStatusText": "Final",
+      "status": "1",
+      "venueName": "Yankee Stadium",
+      "city": "Bronx",
+      "state": "NY",
+      "country": "USA",
+      "consensus": {
+       "homeMoneyLinePickPercent": 66.7238421955403,
+       "awayMoneyLinePickPercent": 33.27615780445969,
+       "homeSpreadPickPercent": 0,
+       "awaySpreadPickPercent": 0,
+       "overPickPercent": 69.45244956772333,
+       "underPickPercent": 30.547550432276655
+      },
+      "baseballLivescore": {
+       "inning": 9,
+       "topBottom": "top",
+       "currentPitcherId": 14490,
+       "currentPitcherFirstName": "Paul",
+       "currentPitcherLastName": "Blackburn",
+       "currentBatterId": 194718,
+       "currentBatterFirstName": "Robert",
+       "currentBatterLastName": "Hassell III",
+       "outs": 3,
+       "balls": 3,
+       "strikes": 1,
+       "runnerOnFirst": false,
+       "runnerOnSecond": false,
+       "runnerOnThird": false,
+       "homeTeamHits": 13,
+       "homeTeamErrors": 0,
+       "awayTeamHits": 6,
+       "awayTeamErrors": 1
+      }
+     },
+     "oddsViews": [
+      {
+       "gameId": 343244,
+       "sportsbook": "betmgm",
+       "totalHistory": [
+        {
+         "oddsDate": "2025-08-26T23:33:23+00:00",
+         "overOdds": -115,
+         "underOdds": -105,
+         "total": 8.5
+        },
+        {
+         "oddsDate": "2025-08-27T14:48:23+00:00",
+         "overOdds": -105,
+         "underOdds": -115,
+         "total": 8.5
+        }
+       ],
+       "spreadHistory": [
+        {
+         "oddsDate": "2025-08-26T23:33:23+00:00",
+         "homeOdds": -125,
+         "awayOdds": 105,
+         "homeSpread": -1.5,
+         "awaySpread": 1.5
+        },
+        {
+         "oddsDate": "2025-08-27T15:08:23+00:00",
+         "homeOdds": -130,
+         "awayOdds": 110,
+         "homeSpread": -1.5,
+         "awaySpread": 1.5
+        }
+       ],
+       "moneyLineHistory": [
+        {
+         "oddsDate": "2025-08-26T23:33:23+00:00",
+         "homeOdds": -275,
+         "awayOdds": 220,
+         "homeSpread": null,
+         "awaySpread": null
+        },
+        {
+         "oddsDate": "2025-08-26T23:33:23+00:00",
+         "homeOdds": -275,
+         "awayOdds": 225,
+         "homeSpread": null,
+         "awaySpread": null
+        }
+       ]
+      },
+      {
+       "gameId": 343244,
+       "sportsbook": "bet365",
+       "totalHistory": [
+        {
+         "oddsDate": "2025-08-26T19:33:23+00:00",
+         "overOdds": -115,
+         "underOdds": -105,
+         "total": 8.5
+        },
+        {
+         "oddsDate": "2025-08-27T09:28:23+00:00",
+         "overOdds": -105,
+         "underOdds": -115,
+         "total": 8.5
+        },
+        {
+         "oddsDate": "2025-08-27T12:53:23+00:00",
+         "overOdds": -115,
+         "underOdds": -105,
+         "total": 8.5
+        }
+       ],
+       "spreadHistory": [
+        {
+         "oddsDate": "2025-08-26T19:33:23+00:00",
+         "homeOdds": -135,
+         "awayOdds": 115,
+         "homeSpread": -1.5,
+         "awaySpread": 1.5
+        },
+        {
+         "oddsDate": "2025-08-26T21:58:23+00:00",
+         "homeOdds": -130,
+         "awayOdds": 110,
+         "homeSpread": -1.5,
+         "awaySpread": 1.5
+        },
+        {
+         "oddsDate": "2025-08-26T22:03:24+00:00",
+         "homeOdds": -125,
+         "awayOdds": 105,
+         "homeSpread": -1.5,
+         "awaySpread": 1.5
+        }
+       ],
+       "moneyLineHistory": [
+        {
+         "oddsDate": "2025-08-26T19:33:23+00:00",
+         "homeOdds": -270,
+         "awayOdds": 220,
+         "homeSpread": null,
+         "awaySpread": null
+        },
+        {
+         "oddsDate": "2025-08-26T22:03:24+00:00",
+         "homeOdds": -260,
+         "awayOdds": 210,
+         "homeSpread": null,
+         "awaySpread": null
+        },
+        {
+         "oddsDate": "2025-08-26T23:53:23+00:00",
+         "homeOdds": -267,
+         "awayOdds": 210,
+         "homeSpread": null,
+         "awaySpread": null
+        }
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}
