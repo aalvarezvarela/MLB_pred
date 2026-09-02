@@ -404,14 +404,17 @@ from day one.
 4. **Rain delays** are not yet handled. A tick 20 minutes "after" a scheduled
    first pitch may still be pre-game. `lh_game` stores SBR's scheduled start;
    distinguishing scheduled from actual would need the StatsAPI actual start.
-5. **No normalisation layer yet** (devig-to-−110 equivalent, centered lines).
-   The sigmas are measured; the transform is feature-layer work.
+5. **Closing-line normalisation is built; snapshot normalisation is not.**
+   `features/market_normalization.py` devigs complete two-way quotes and
+   restates totals and run lines at equal −110/−110 prices using the measured
+   market-specific sigmas. Raw executable lines/prices remain beside the
+   normalized values. The future snapshot panel must reuse this transform.
 6. **No snapshot panel yet.** The grid should be chosen after measuring the
    coverage cliff on real MLB data, and should account for the
    pitchers-announced state rather than hours alone.
-7. **No wide/closing-line table.** Deliberate — the tick store is the source of
-   truth and the wide form is a derived view, per the skill's own advice for a
-   fresh build.
+7. **The wide closing-line table is a generated feature view, never a source.**
+   It is rebuilt from ticks under `data/features/closing_lines/`; the long tick
+   store remains authoritative.
 
 ---
 
@@ -430,9 +433,42 @@ Against the skill's checklist:
 | 7 | Load-time repairs and per-reason drop counters | Done |
 | 8 | Day-by-day backfill, polite sleeps, retries, warn-not-raise | Done |
 | 9 | Update planner (refresh ∪ gaps ∪ partial) with dry-run | Done |
-| 10 | Calibrate per-market sigma before normalising | Sigmas measured; transform not built |
+| 10 | Calibrate per-market sigma before normalising | Done — measured and used by the closing transform |
 | 11 | Measure snapshot coverage by horizon, then choose the grid | Not started |
-| 12 | Separate closing lines into a scoring sidecar | Not started |
+| 12 | Separate closing lines into a scoring sidecar | Closing feature files contain no outcomes; snapshot scoring sidecar not started |
 
 Steps 10–12 are feature-layer work and belong with
 `.claude/skills/feature-engineering`.
+
+---
+
+## Closing-line feature view
+
+Build it entirely from local parquet:
+
+```bash
+poetry run python scripts/create_features/create_closing_lines.py
+```
+
+The output is one partition per season at
+`data/features/closing_lines/closing_lines_<season>.parquet`, one row per game.
+The close is the latest complete quote no nearer than five minutes before first
+pitch. Stored ×2 lines are decoded once at this boundary.
+
+Every column has a machine-readable family label:
+
+* `GAME_*` — ids and schedule context known before first pitch;
+* `ODDS_TOTAL_*` — raw and equal-price totals, fair probabilities, vig,
+  quote age and cross-book summaries;
+* `ODDS_RUN_LINE_*` — raw and equal-price home/away handicaps, fair cover
+  probabilities, vig, quote age and cross-book summaries;
+* `ODDS_MONEY_LINE_*` — raw prices plus devigged win probabilities (there is no
+  line to shift);
+* `ODDS_DERIVED_*` — implied home/away runs from normalized consensus total and
+  home-margin lines.
+
+The builder selects an explicit game-metadata allowlist and never reads final
+scores, realised margin, over/under result, cover result or line error. Those
+targets must remain in a physically separate scoring sidecar. Normalized lines
+are comparable market estimates but are not executable bets; ROI must always be
+settled against the raw quote.

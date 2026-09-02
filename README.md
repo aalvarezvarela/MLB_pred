@@ -4,7 +4,8 @@ Run-line and total-runs prediction for MLB. Architecture ported from
 [`NBA_over_under_predictor`](../NBA_over_under_predictor).
 
 **Status:** sports-data, Statcast, and SportsbookReview odds layers complete.
-Features and modelling not started.
+Closing-market, rolling team-form, matchup, market-regime and contextual
+pregame features are built; modelling is not started.
 
 ## Quick start
 
@@ -34,6 +35,36 @@ poetry run python scripts/fetch_data/backfill_statcast.py
 poetry run python scripts/update_databases/update_statcast.py
 ```
 
+Build the first leakage-safe feature family, closing totals/run lines/moneylines,
+from the local odds parquet store:
+
+```bash
+poetry run python scripts/create_features/create_closing_lines.py
+```
+
+Generated partitions are written under `data/features/closing_lines/`. Columns
+are grouped by `GAME_*`, `ODDS_TOTAL_*`, `ODDS_RUN_LINE_*`,
+`ODDS_MONEY_LINE_*`, and `ODDS_DERIVED_*`; realised outcomes are deliberately
+absent.
+
+Build the closing features together with NBA-shaped rolling team and market
+history (use `--seasons 2025` to write only selected output seasons while still
+retaining all earlier seasons as rolling context):
+
+```bash
+poetry run python scripts/create_features/create_pregame_features.py
+```
+
+The output under `data/features/pregame/` contains the NBA 1/2/3/5/10-game,
+WMA-5, season mean/std and 5/10 trend families, plus MLB 20/30-game windows.
+It also includes stable home/away team one-hot columns, win counts/ratios and
+streaks, rest and schedule density, series-aware travel, matchup/style
+crossings, total and spread market regimes, odds interactions, prior
+head-to-head context, calendar/competition context, and extra-inning history.
+Columns are grouped under `TEAM_*`, `SCHEDULE_*`, `TRAVEL_*`, and `ODDS_*`;
+every advanced engineered feature contains `_BEFORE`, and final-game source
+statistics never leave the builders.
+
 Data lands in `data/` (gitignored, regenerable) except `data/snapshots/`,
 which is not regenerable and should be backed up.
 
@@ -43,6 +74,7 @@ which is not regenerable and should be backed up.
 |---|---|
 | Design rationale and every NBA divergence | [`docs/mlb-sports-data-architecture.md`](docs/mlb-sports-data-architecture.md) |
 | Odds layer, and what was measured vs assumed | [`docs/mlb-odds-architecture.md`](docs/mlb-odds-architecture.md) |
+| Rolling families and leakage contract | [`docs/mlb-feature-engineering.md`](docs/mlb-feature-engineering.md) |
 | Repo conventions and leakage rules | [`CLAUDE.md`](CLAUDE.md) |
 | Portable architecture skills | [`.claude/skills/`](.claude/skills/) |
 

@@ -15,7 +15,9 @@ forced a divergence, the reason is recorded in
 layer.
 
 Current state: the **sports-data, Statcast, and SportsbookReview odds layers
-are built**. Feature engineering, modelling, prediction and settlement are not
+are built**, together with leakage-safe closing totals/run lines/moneylines and
+NBA-shaped rolling team/market history under `src/mlb_pred/features/`. Injuries,
+the remaining feature families, modelling, prediction and settlement are not
 started. (The NBA repo's Yahoo odds scraper is deliberately not ported.)
 
 ## Reference material
@@ -50,6 +52,14 @@ started. (The NBA repo's Yahoo odds scraper is deliberately not ported.)
   - `odds/` — `encoding.py` (×2 SMALLINT lines, devig), `identity.py`
     (SBR event -> `game_pk`, doubleheaders), `ingest.py` (repairs + drop
     counters), `planner.py` (what to fetch next).
+  - `features/` — pre-game feature builders. `closing_lines.py` derives the
+    latest complete quote at least five minutes before first pitch;
+    `market_normalization.py` restates totals and run lines at equal
+    `-110/-110` prices while preserving raw executable quotes;
+    `rolling_features.py` builds shifted team-game rolling history and pivots
+    it once into `_TEAM_HOME`, `_TEAM_AWAY`, and `_DIFF_BEFORE` columns;
+    `context_features.py` adds team one-hot identity, win record/streaks,
+    schedule density, rest, and series-aware travel.
   - `postgre_db/` — `config/db_config.py`, `schema.py` (DDL), `load.py`.
 - `scripts/` — thin CLI entry points:
   - `fetch_data/backfill_mlb_data.py`
@@ -58,6 +68,8 @@ started. (The NBA repo's Yahoo odds scraper is deliberately not ported.)
   - `create_databases/create_mlb_databases.py`
   - `fetch_data/backfill_odds.py`, `update_databases/update_odds.py`
   - `fetch_data/backfill_statcast.py`, `update_databases/update_statcast.py`
+  - `create_features/create_closing_lines.py`,
+    `create_features/create_pregame_features.py`
 - `data/` — local raw copy, **gitignored and regenerable**. Parquet,
   partitioned by season.
 - `tests/` — pytest, one file per concern.
@@ -87,6 +99,10 @@ started. (The NBA repo's Yahoo odds scraper is deliberately not ported.)
   Write pitch facts before `statcast_games` completion metadata.
 - **`_BEFORE` marks a leakage-safe, pre-game feature** (same convention as the
   NBA repo). Feature work must respect it.
+- **Feature-family prefixes are machine-readable.** `TEAM_IDENTITY_*` and
+  `TEAM_RECORD_*` cover team identity/form; `SCHEDULE_*` covers rest and
+  calendar load; `TRAVEL_*` covers geography/timezone load; `ODDS_*` covers
+  markets. Do not add an unlabelled model feature.
 
 ## Odds-layer conventions
 
