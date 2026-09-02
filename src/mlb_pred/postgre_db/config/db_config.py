@@ -1,12 +1,11 @@
-"""Centralised database configuration.
+"""Centralised PostgreSQL-wire database configuration.
 
-Mirrors ``nba_ou.postgre_db.config.db_config``. Two environments are
-supported: ``local`` (discrete host/user/port settings) and ``aiven``
-(configured by a full connection URI). ``[Database] DB_ENV`` selects; the
-``DB_ENV`` environment variable overrides.
+``local`` uses discrete host/user/port settings. Hosted environments use a
+full connection URI. ``[Database] DB_ENV`` selects the target and the
+``DB_ENV`` environment variable overrides it.
 
-Nothing writes to Aiven until ``DB_ENV`` is switched -- the shipped default is
-``local``.
+Nothing writes to a hosted service until ``DB_ENV`` is switched -- the shipped
+default is ``local``.
 """
 
 from __future__ import annotations
@@ -16,16 +15,17 @@ from typing import Any
 
 import psycopg
 from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from mlb_pred.config.settings import SETTINGS
 
 # Environments configured by a connection URI, as (section, key, env var).
 _DSN_SOURCES: dict[str, tuple[str, str, str]] = {
-    "aiven": ("DatabaseAiven", "AIVEN_DB_URL", "AIVEN_DB_URL"),
+    "aiven": ("Aiven", "AIVEN_DB_URL", "AIVEN_DB_URL"),
 }
 
 _CREDENTIAL_SECTIONS: dict[str, str] = {
-    "aiven": "DatabaseAiven",
+    "aiven": "Aiven",
     "local": "DatabaseLocal",
 }
 
@@ -62,7 +62,20 @@ def get_db_dsn(env: str | None = None) -> str:
     spec = _DSN_SOURCES.get(resolved)
     if spec is None:
         return ""
-    return _resolve(*spec, required=False)
+    dsn = _resolve(*spec, required=False)
+    if resolved == "aiven" and dsn:
+        # Keep the standalone secret authoritative after password rotation.
+        password = _resolve(
+            "Aiven",
+            "AIVEN_DB_PASSWORD",
+            "AIVEN_DB_PASSWORD",
+            required=False,
+        )
+        if password:
+            params = conninfo_to_dict(dsn)
+            params["password"] = password
+            dsn = make_conninfo(**params)
+    return dsn
 
 
 def get_db_credentials(env: str | None = None) -> dict[str, Any]:
@@ -87,11 +100,12 @@ def get_db_credentials(env: str | None = None) -> dict[str, Any]:
 
 def connect_mlb_db(env: str | None = None) -> psycopg.Connection:
     """Connect to the project database."""
-    dsn = get_db_dsn(env)
+    resolved = (env or get_db_env()).strip().lower()
+    dsn = get_db_dsn(resolved)
     if dsn:
         return psycopg.connect(dsn)
 
-    credentials = get_db_credentials(env)
+    credentials = get_db_credentials(resolved)
     return psycopg.connect(
         user=credentials["user"],
         password=credentials["password"],
@@ -104,7 +118,14 @@ def connect_mlb_db(env: str | None = None) -> psycopg.Connection:
 
 def connect_postgres_db(env: str | None = None) -> psycopg.Connection:
     """Connect to the maintenance ``postgres`` database (for CREATE DATABASE)."""
-    credentials = get_db_credentials(env)
+    resolved = (env or get_db_env()).strip().lower()
+    dsn = get_db_dsn(resolved)
+    if dsn:
+        conn = psycopg.connect(dsn)
+        conn.autocommit = True
+        return conn
+
+    credentials = get_db_credentials(resolved)
     conn = psycopg.connect(
         user=credentials["user"],
         password=credentials["password"],

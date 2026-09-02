@@ -79,7 +79,9 @@ DDL_STATEMENTS: tuple[str, ...] = (
         UNIQUE (event_id)
     )
     """,
-    """
+)
+
+LINE_TABLE_DDL = """
     CREATE TABLE IF NOT EXISTS {schema}.lh_line (
         game_pk     TEXT        NOT NULL,
         season_year SMALLINT    NOT NULL,
@@ -93,12 +95,14 @@ DDL_STATEMENTS: tuple[str, ...] = (
         left_price  SMALLINT,
         right_line  SMALLINT,
         right_price SMALLINT,
-        -- season_year is last only because Postgres requires the partition key
+        -- season_year is last because Postgres requires the partition key
         -- inside any unique constraint; game_pk stays leading so "all lines
         -- for game X" still uses the index prefix.
         PRIMARY KEY (game_pk, market_id, book_id, line_ts, season_year)
     ) PARTITION BY LIST (season_year)
-    """,
+"""
+
+METADATA_DDL_STATEMENTS: tuple[str, ...] = (
     # Provenance. "We are not sure about these seasons" is a fact the modelling
     # layer needs, and it belongs next to the data rather than in tribal
     # knowledge. `available_seasons()` reads this instead of a hardcoded range.
@@ -138,6 +142,9 @@ def create_schema(conn: psycopg.Connection) -> None:
             sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(SCHEMA))
         )
         for statement in DDL_STATEMENTS:
+            cur.execute(sql.SQL(statement.format(schema=SCHEMA)))
+        cur.execute(sql.SQL(LINE_TABLE_DDL.format(schema=SCHEMA)))
+        for statement in METADATA_DDL_STATEMENTS:
             cur.execute(sql.SQL(statement.format(schema=SCHEMA)))
 
         for market_id, code in MARKETS:

@@ -29,6 +29,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--refresh-days", type=int, default=3)
     parser.add_argument("--limit-dates", type=int, default=None)
+    parser.add_argument(
+        "--refresh-only",
+        action="store_true",
+        help="Fetch only the recent refresh window; ignore historical gaps and "
+        "partial-coverage dates.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--sync-postgres",
@@ -45,6 +51,7 @@ def main() -> int:
         refresh_days=args.refresh_days,
         dry_run=args.dry_run,
         limit_dates=args.limit_dates,
+        refresh_only=args.refresh_only,
     )
 
     if args.dry_run:

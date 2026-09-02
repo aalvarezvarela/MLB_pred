@@ -8,6 +8,7 @@ import pytest
 from mlb_pred.fetch_data.sbr.client import SbrFetchError
 from mlb_pred.fetch_data.sbr.line_history import LineTick, ScrapedGame
 from mlb_pred.local_store import odds_updaters, parquet_store
+from mlb_pred.odds.planner import UpdatePlan
 
 
 @pytest.fixture(autouse=True)
@@ -137,6 +138,29 @@ def test_coverage_reports_the_in_play_share(monkeypatch, games):
     assert coverage.loc[0, "season_year"] == 2025
     assert coverage.loc[0, "games_priced"] == 1
     assert coverage.loc[0, "inplay_share"] == 0.0
+
+
+def test_refresh_only_does_not_fetch_historical_gaps(monkeypatch):
+    recent = date(2026, 9, 1)
+    historical_gap = date(2025, 4, 6)
+    plan = UpdatePlan(
+        refresh_dates=[recent],
+        gap_dates=[historical_gap],
+        partial_dates=[historical_gap],
+    )
+    captured = []
+    monkeypatch.setattr(odds_updaters, "current_plan", lambda **kwargs: plan)
+
+    def fake_ingest(days):
+        captured.extend(days)
+        return {"written": {}, "stats": [], "resolution": []}
+
+    monkeypatch.setattr(odds_updaters, "ingest_dates", fake_ingest)
+
+    result = odds_updaters.update_odds(refresh_only=True)
+
+    assert captured == [recent]
+    assert result["dates"] == [recent]
 
 
 class _NullSession:
