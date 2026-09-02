@@ -61,3 +61,35 @@ Betting lines come from SportsbookReview, read out of each page's embedded
 carries no timezone offset, which makes a DOM scraper silently
 machine-dependent. One request per game returns every sportsbook across
 totals, run line and moneyline.
+
+## PostgreSQL mirror and S3 archive
+
+Local Parquet is the working store. Selected seasons can be mirrored to Aiven
+PostgreSQL using the domain schemas defined by the project:
+
+```bash
+DB_ENV=aiven poetry run python \
+  scripts/create_databases/create_mlb_databases.py --seasons 2026 --sync
+```
+
+The command is idempotent. Do not pass ``--drop-existing`` during a normal
+refresh.
+
+Historical Parquet archival is dry-run-first and never deletes local files:
+
+```bash
+# Manifest every downloaded Parquet partition (bucket/profile/region come from
+# [S3] in src/mlb_pred/config.ini unless overridden by CLI or environment).
+poetry run python scripts/archive_historical_parquet.py --all
+poetry run python scripts/archive_historical_parquet.py --all --execute
+
+# Or archive only historical seasons.
+poetry run python scripts/archive_historical_parquet.py --before-season 2025
+
+MLB_ARCHIVE_S3_BUCKET=YOUR_BUCKET poetry run python \
+  scripts/archive_historical_parquet.py --before-season 2025 --execute
+```
+
+Each archive writes a JSON manifest containing row counts, byte sizes and
+SHA-256 checksums. Uploads store the checksum as S3 object metadata and read it
+back with the object size before reporting success.

@@ -178,6 +178,7 @@ def update_odds(
     first_season: int = FIRST_ODDS_SEASON,
     dry_run: bool = False,
     limit_dates: int | None = None,
+    refresh_only: bool = False,
     today: date | None = None,
 ) -> dict:
     """Run the planner and fetch what it asks for."""
@@ -186,7 +187,9 @@ def update_odds(
     )
     print(plan.summary())
 
-    days = plan.dates
+    days = plan.refresh_dates if refresh_only else plan.dates
+    if refresh_only:
+        print(f"  selected       : {len(days)} recent refresh date(s) only")
     if limit_dates is not None:
         days = days[:limit_dates]
 

@@ -4,14 +4,16 @@ The fetchers produce plain DataFrames and know nothing about storage. This
 module is the only place that turns one into rows, so the local Parquet store
 and Postgres stay two backends for the same schemas rather than two schemas.
 
-Writes are ``INSERT ... ON CONFLICT DO UPDATE`` on each table's declared
-primary key -- the same insert-only-with-upsert semantics as the Parquet
-store, which is what lets every updater be re-run at any cadence.
+Writes are batched multi-row ``INSERT ... ON CONFLICT DO UPDATE`` statements
+on each table's declared primary key. Bounded single-statement transactions
+are efficient over a WAN, safe to resume, and can be retried independently on
+serialization conflicts.
 """
 
 from __future__ import annotations
 
 import math
+import time
 
 import pandas as pd
 import psycopg
@@ -31,7 +33,9 @@ _SCHEMA_SETTING_FOR_TABLE = {
 # Columns that are reserved words in SQL and quoted in the DDL.
 _QUOTED_COLUMNS = {"left", "right"}
 
-BATCH_SIZE = 5_000
+MAX_BATCH_ROWS = 500
+MAX_BOUND_PARAMETERS = 20_000
+MAX_TRANSACTION_RETRIES = 5
 
 
 def schema_for(table: str) -> str:
@@ -123,24 +127,30 @@ def upsert_dataframe(
         else:
             conflict_action = sql.SQL("DO NOTHING")
 
-        statement = sql.SQL(
-            "INSERT INTO {}.{} ({}) VALUES ({}) ON CONFLICT ({}) {}"
-        ).format(
-            sql.Identifier(schema),
-            sql.Identifier(table),
-            sql.SQL(", ").join(identifiers),
-            sql.SQL(", ").join(sql.Placeholder() * len(columns)),
-            sql.SQL(", ").join(sql.Identifier(c) for c in spec.primary_key),
-            conflict_action,
-        )
-
         payload = df[columns].astype(object).where(pd.notna(df[columns]), None)
         rows = [tuple(_clean(v) for v in record) for record in payload.to_numpy()]
+        batch_size = min(
+            MAX_BATCH_ROWS,
+            max(1, MAX_BOUND_PARAMETERS // max(1, len(columns))),
+        )
 
-        with conn.cursor() as cur:
-            for start in range(0, len(rows), BATCH_SIZE):
-                cur.executemany(statement, rows[start : start + BATCH_SIZE])
-        conn.commit()
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start : start + batch_size]
+            row_placeholders = sql.SQL("({})").format(
+                sql.SQL(", ").join(sql.Placeholder() * len(columns))
+            )
+            statement = sql.SQL(
+                "INSERT INTO {}.{} ({}) VALUES {} ON CONFLICT ({}) {}"
+            ).format(
+                sql.Identifier(schema),
+                sql.Identifier(table),
+                sql.SQL(", ").join(identifiers),
+                sql.SQL(", ").join(row_placeholders for _ in batch),
+                sql.SQL(", ").join(sql.Identifier(c) for c in spec.primary_key),
+                conflict_action,
+            )
+            parameters = tuple(value for row in batch for value in row)
+            _execute_retryable_batch(conn, statement, parameters)
         return len(rows)
     except Exception:
         conn.rollback()
@@ -148,6 +158,25 @@ def upsert_dataframe(
     finally:
         if owns_connection:
             conn.close()
+
+
+def _execute_retryable_batch(
+    conn: psycopg.Connection,
+    statement: sql.Composable,
+    parameters: tuple,
+) -> None:
+    """Execute one idempotent batch, retrying SQLSTATE 40001."""
+    for attempt in range(MAX_TRANSACTION_RETRIES):
+        try:
+            with conn.cursor() as cur:
+                cur.execute(statement, parameters)
+            conn.commit()
+            return
+        except psycopg.Error as exc:
+            conn.rollback()
+            if exc.sqlstate != "40001" or attempt + 1 == MAX_TRANSACTION_RETRIES:
+                raise
+            time.sleep(0.1 * (2**attempt))
 
 
 def sync_local_store_to_postgres(
@@ -166,9 +195,7 @@ def sync_local_store_to_postgres(
     try:
         for table in selected:
             spec = get_spec(table)
-            partitions = (
-                seasons if seasons and spec.partition_column == "season_year" else None
-            )
+            partitions = seasons if seasons and spec.partition_column else None
             frame = read_table(table, partitions=partitions)
             written = upsert_dataframe(frame, table, conn=conn)
             results[table] = written

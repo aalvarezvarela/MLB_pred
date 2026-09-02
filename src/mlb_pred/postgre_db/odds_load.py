@@ -289,9 +289,9 @@ def record_load_meta(
 
 def sync_odds_to_postgres(seasons: list[int] | None = None) -> dict[str, int]:
     """Push the local odds store into Postgres. Safe to re-run."""
-    dimension = read_table("odds_games")
-    ticks = read_table("odds_ticks")
-    fetches = read_table("odds_fetches")
+    dimension = read_table("odds_games", partitions=seasons)
+    ticks = read_table("odds_ticks", partitions=seasons)
+    fetches = read_table("odds_fetches", partitions=seasons)
     if dimension.empty and ticks.empty:
         print("Local odds store is empty; nothing to sync.")
         return {}
@@ -312,7 +312,9 @@ def sync_odds_to_postgres(seasons: list[int] | None = None) -> dict[str, int]:
             season_ticks = ticks[ticks["season_year"] == season_year]
             season_fetches = fetches[fetches["season_year"] == season_year]
             stats = SimpleNamespace(
-                source_ticks=int(season_fetches.get("source_tick_count", pd.Series(dtype=int)).sum()),
+                source_ticks=int(
+                    season_fetches.get("source_tick_count", pd.Series(dtype=int)).sum()
+                ),
                 loaded_ticks=len(season_ticks),
                 games_seen=len(season_fetches),
                 games_loaded=int(
@@ -321,7 +323,9 @@ def sync_odds_to_postgres(seasons: list[int] | None = None) -> dict[str, int]:
                     .sum()
                 ),
                 dropped=Counter(
-                    season_fetches.get("ingest_status", pd.Series(dtype=object)).value_counts().to_dict()
+                    season_fetches.get("ingest_status", pd.Series(dtype=object))
+                    .value_counts()
+                    .to_dict()
                 ),
             )
             resolution = SimpleNamespace(

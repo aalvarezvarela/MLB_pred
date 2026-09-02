@@ -153,15 +153,17 @@ The snapshot job is the one whose missed runs are **permanent**.
 
 ## Storage
 
-Local Parquet under `data/raw/` is the working store. Postgres mirrors the
-same schemas, one schema per domain, and is switched on by setting
-`[Database] DB_ENV = aiven` (or the `DB_ENV` env var) plus credentials in
-`config.secrets.ini`. The shipped default is `local`, so nothing reaches the
-shared database until that is changed deliberately.
+Local Parquet under `data/raw/` is the working store. Aiven PostgreSQL mirrors
+the same schemas, one schema per domain, and is selected with `DB_ENV=aiven`
+plus credentials in `config.secrets.ini`. Historical Parquet can be archived
+to S3. The shipped default is `local`, so nothing reaches a remote service
+until the environment is changed deliberately.
 
 ```bash
 poetry run python scripts/create_databases/create_mlb_databases.py
 DB_ENV=aiven poetry run python scripts/create_databases/create_mlb_databases.py --sync
+poetry run python scripts/archive_historical_parquet.py --before-season 2025
+poetry run python scripts/archive_historical_parquet.py --all --execute
 ```
 
 ## Environment / tooling
