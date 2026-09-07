@@ -60,10 +60,49 @@ WMA-5, season mean/std and 5/10 trend families, plus MLB 20/30-game windows.
 It also includes stable home/away team one-hot columns, win counts/ratios and
 streaks, rest and schedule density, series-aware travel, matchup/style
 crossings, total and spread market regimes, odds interactions, prior
-head-to-head context, calendar/competition context, and extra-inning history.
+head-to-head context, calendar/competition context, extra-inning history, and
+player availability. Availability distinguishes final-lineup starters,
+unexplained observed absences, transaction-confirmed IL absences, and starting
+pitcher quality; see the documented final-lineup proxy limitation before using
+it in a production backtest.
 Columns are grouped under `TEAM_*`, `SCHEDULE_*`, `TRAVEL_*`, and `ODDS_*`;
 every advanced engineered feature contains `_BEFORE`, and final-game source
 statistics never leave the builders.
+
+Create the NBA-shaped, one-row-per-game training CSV after building every
+desired pregame partition:
+
+```bash
+# All available seasons and completed games.
+poetry run python scripts/create_train_data/create_train_data.py
+
+# Or a reproducible subset/cutoff.
+poetry run python scripts/create_train_data/create_train_data.py \
+  --seasons 2019 2020 2021 2022 2023 2024 2025 \
+  --limit 2025-11-01
+
+# Or measure the residuals against the raw executable close instead.
+poetry run python scripts/create_train_data/create_train_data.py --raw-lines
+```
+
+The CSV keeps `TOTAL_RUNS`, `RUN_LINE_MARGIN`/`HOME_MARGIN`, `LINE_ERROR`,
+`SPREAD_ERROR`, and the two final team scores as outcome-only columns. The
+residual targets use the normalized consensus close:
+
+```text
+LINE_ERROR   = TOTAL_RUNS - total line
+SPREAD_ERROR = RUN_LINE_MARGIN - SPREAD_LINE_HOME
+```
+
+`SPREAD_LINE_HOME` is the market-implied home margin and is the negation of the
+stored home-handicap quote. Both residuals default to the `-110/-110` normalized
+close; `--raw-lines` measures them against the raw executable close instead,
+which is the MLB equivalent of the NBA script's `--no-normalize-*` switches
+(MLB normalizes upstream and carries both shapes into the partition). A game
+missing one market keeps a null residual for it and stays usable for the other.
+Use `feature_columns()` from
+`mlb_pred.create_training_data.training_frame` to obtain a model allow-list
+that excludes raw metadata and every realised outcome.
 
 Data lands in `data/` (gitignored, regenerable) except `data/snapshots/`,
 which is not regenerable and should be backed up.

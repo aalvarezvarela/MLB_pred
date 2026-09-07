@@ -4,8 +4,8 @@ This layer follows the implementation on the NBA repository's
 `dev/fix-training-pipeline` branch, translated to the team-game grain used by
 MLB. It contains closing markets, rolling team/market history, contextual
 schedule features, game-level matchup combinations, total/spread market
-regimes, and strictly historical matchup/extra-inning context. Injuries are
-deliberately excluded from this iteration.
+regimes, strictly historical matchup/extra-inning context, and player
+availability.
 
 ## Column contract
 
@@ -15,6 +15,9 @@ deliberately excluded from this iteration.
 - `TEAM_RATIO_*`: ratios of historical estimates.
 - `TEAM_IDENTITY_*`: stable home/away team one-hot indicators.
 - `TEAM_RECORD_*`: prior wins, win ratios, and consecutive-win streaks.
+- `TEAM_AVAILABILITY_*`: final-lineup availability, observed absences,
+  transaction-confirmed IL absences, starting-pitcher quality, and historical
+  player effects.
 - `SCHEDULE_*`: series position, rest, game density, and day-after-night flags.
 - `TRAVEL_*`: series travel, recent distance load, and timezone disruption.
 - `_TEAM_HOME` / `_TEAM_AWAY`: the side after the final team-game pivot.
@@ -127,3 +130,112 @@ The historical matchup, extra-innings and global market builders apply each
 date's completed results only after every row on that date has received its
 features. This is the same conservative doubleheader rule used by rolling team
 form and records.
+
+## Player availability and the final-lineup proxy
+
+Historical availability uses the final nine-player lineup stored by the MLB
+Stats API as a proxy for the lineup known before first pitch. The repository
+does not retain the historical publication time of that lineup. This proxy can
+therefore make a backtest optimistic and must not be treated as equivalent to
+the timestamped snapshots used for live prediction. A production evaluation
+must compare this family with the stricter transaction-only variant; an uplift
+that exists only with final lineups is not deployable without an archived,
+timestamped lineup source.
+
+The three hitter states have deliberately different meanings:
+
+- `available` means the player appears in the final starting lineup;
+- `observed_absent` means a high-role candidate neither started nor appeared
+  in the game, but no known IL state explains the absence; and
+- `injured` means the same kind of relevant absence is supported by an open IL
+  transaction state.
+
+An observed absence is not an injury label. It may reflect rest, a coaching
+decision, a minor-league option, or another cause. IL state is reconstructed in
+`known_date` and transaction-id order: placement opens it, transfer maintains
+it, and activation or reinstatement closes it. The direction comes from
+`type_desc` and `description`, because activation text also contains the words
+"injured list". As specified for this retrospective family, a transaction is
+admitted when `known_date <= game_date`; the missing intraday timestamp remains
+a documented limitation.
+
+Hitter quality uses a ten-appearance half-life EWMA for PA, OBP, SLG, HR/PA,
+BB%, K%, total bases/PA, and baserunners/PA. Starting pitchers use a separate
+EWMA path for outs, batters faced, ERA/9, WHIP, K%, BB%, HR/BF, and pitches/BF.
+Both paths fall back from current-season history to the immediately preceding
+regular season and then to fixed neutral values. Hitter neutrals are 0 PA,
+.320 OBP, .400 SLG, .030 HR/PA, .080 BB%, .220 K%, .360 total bases/PA, and
+.320 baserunners/PA. Pitcher neutrals are 0 outs/BF, 4.50 ERA/9, 1.30 WHIP,
+.220 K%, .080 BB%, .030 HR/BF, and 3.90 pitches/BF. The target game and all
+games on its date are excluded.
+
+All eight hitter metrics reach the team output, in two tiers. PA, OBP, SLG and
+HR/PA are primary: they carry totals, means, maxima and per-rank top-N columns,
+because a single star dominates them. BB%, K%, total bases/PA and baserunners/PA
+are secondary and carry only means and maxima — a sum over rate statistics has
+no interpretation, and a per-rank ordering of them is not a quality ordering.
+
+Expected hitters are the top nine recent team candidates, ordered primarily by
+PA EWMA and then by starting-lineup share over the prior 20 team games. Player
+quality follows the player across a team change, while membership follows the
+latest prior appearance and known transactions. Pitchers on the IL contribute
+a depth count, but a reliever who simply does not pitch is never classified as
+absent.
+
+No starter-scratch flag is emitted. The only leakage-safe evidence would be a
+change between an archived pre-game probable and the announced starter, and the
+snapshot archive does not reach back over the backfill; comparing the schedule's
+probable against who actually pitched is post-game information. The column is
+therefore absent rather than present and constantly zero.
+
+Playing roles are accumulated as independent flags — has batted, has pitched,
+has started on the mound — never as one exclusive label. A two-way player is
+genuinely both, and an exclusive label forced him to flip: he became a pitcher
+on the date he started on the mound and only reverted on his next batting date,
+which erased the best hitter on the roster from the game in between. The lineup
+slot marked `P` is the pitcher taking his own turn at bat, which is the
+2015-2021 National League default and not a hitter, so `N_AVAILABLE` is
+legitimately eight rather than nine for those games. An established batting role,
+evidenced only from strictly earlier dates, overrides that slot, which is how a
+two-way player listed at `P` while batting stays a hitter.
+
+Absence is inferred by differencing the expected hitters against the starters,
+so it requires a lineup to exist. When one does not, no absence is emitted at
+all and `LINEUP_COVERAGE` carries the fact; differencing against an empty
+starter set would otherwise report every expected hitter as absent, which reads
+as a squad-wide injury crisis rather than as missing data.
+
+Empirical hitter effects compare earlier team/game outcomes when each relevant
+player was available versus absent. They use only the current and previous
+season and shrink by `n_eff / (n_eff + 10)`, where `n_eff` is the smaller of
+the available and absent samples. Effect values are zero when either side has
+no evidence, while sample-size columns retain that distinction.
+
+## Training-data boundary
+
+Pregame partitions remain physically free of final scores. The historical
+training builder in `mlb_pred.create_training_data.training_frame` is the one
+explicit boundary that joins those partitions to the `games` scoring sidecar.
+It recomputes total runs and home margin from the two team scores, checks them
+against the stored game outcomes, and emits `TOTAL_RUNS`, `RUN_LINE_MARGIN`,
+the NBA-compatible alias `HOME_MARGIN`, `LINE_ERROR`, and `SPREAD_ERROR`.
+
+`LINE_ERROR` is actual total runs minus the normalized consensus total.
+`SPREAD_LINE_HOME` is the market-implied home margin, obtained by negating the
+normalized consensus home handicap, and `SPREAD_ERROR` is actual home margin
+minus that implied margin. Positive spread error means the home team covered;
+zero is a push and remains a valid regression target. Rows without one market
+retain a null residual for that market so they remain usable by the other
+targets.
+
+Both residuals default to the normalized close, and `--raw-lines` measures them
+against the raw executable close instead. This is where the NBA script's
+`--no-normalize-total-lines` and `--no-normalize-spread-lines` switches land in
+this repo: MLB normalizes upstream in `market_normalization.py` and carries both
+shapes into the pregame partition, so the choice here is which stored quote the
+target is measured against rather than whether to normalize at all.
+
+The output also retains final home/away runs and the extra-innings indicator for
+settlement and filtering. These, and every derived target, are listed in
+`OUTCOME_ONLY_COLUMNS`; `feature_columns()` excludes them and raw game metadata
+from the model allow-list.

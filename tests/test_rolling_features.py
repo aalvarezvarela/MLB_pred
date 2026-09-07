@@ -7,6 +7,7 @@ import pytest
 from mlb_pred.features.rolling_features import (
     DERIVED_RATE_SOURCE_COLUMNS,
     TEAM_SOURCE_COLUMNS,
+    TIER1,
     _prepare_team_context,
     _rolling_source_features,
     _wide_team_features,
@@ -75,7 +76,7 @@ def _single_source_team_rows(
 ) -> pd.DataFrame:
     context = _prepare_team_context(team_games, games)
     features = _rolling_source_features(
-        context, "runs_scored", "RUNS_SCORED", extended=True
+        context, "runs_scored", "RUNS_SCORED", tier=TIER1
     )
     return pd.concat([context, pd.DataFrame(features, index=context.index)], axis=1)
 
@@ -236,19 +237,19 @@ def test_scheduled_rows_neither_create_zero_rates_nor_consume_history_slots():
     )
     context = _prepare_team_context(completed, games)
     scheduled = context.loc[(context["game_pk"] == "2") & context["home"]].iloc[0]
-    assert pd.isna(scheduled["__offense_hits_per_pa"])
+    assert pd.isna(scheduled["__pitching_era_per_9"])
 
     features = _rolling_source_features(
         context,
-        "__offense_hits_per_pa",
-        "OFFENSE_HITS_PER_PA",
-        extended=True,
+        "__pitching_era_per_9",
+        "PITCHING_ERA_PER_9",
+        tier=TIER1,
     )
     rows = pd.concat([context, pd.DataFrame(features, index=context.index)], axis=1)
     later = rows.loc[(rows["game_pk"] == "3") & rows["home"]].iloc[0]
     assert later[
-        "TEAM_ROLLING_OFFENSE_HITS_PER_PA_LAST_ALL_1_GAMES_BEFORE"
-    ] == pytest.approx(1.0)
+        "TEAM_ROLLING_PITCHING_ERA_PER_9_LAST_ALL_1_GAMES_BEFORE"
+    ] == pytest.approx(27.0)
 
 
 def test_public_builder_labels_families_and_keeps_outcomes_only_as_history():
@@ -277,8 +278,11 @@ def test_public_builder_labels_families_and_keeps_outcomes_only_as_history():
     assert all(column.startswith(("GAME_", "ODDS_", "TEAM_")) for column in features)
     assert not any(column in features for column in ("runs_scored", "total_runs"))
     assert "TEAM_ROLLING_RUNS_SCORED_SEASON_BEFORE_AVG_TEAM_HOME" in features
-    assert "TEAM_RATIO_RUNS_SCORED_LAST_5_DIV_SEASON_AVG_BEFORE_TEAM_HOME" in features
-    assert "TEAM_ROLLING_RUNS_SCORED_LAST_ALL_5_GAMES_DIFF_BEFORE" in features
+    assert "TEAM_ROLLING_RUNS_SCORED_LAST_ALL_5_GAMES_BEFORE_TEAM_HOME" in features
+    # HOME - AWAY is emitted only for the hand-picked DIFF_FEATURES, because
+    # it is an exact linear combination of the two side columns.
+    assert "TEAM_ROLLING_RUNS_SCORED_SEASON_BEFORE_AVG_DIFF_BEFORE" in features
+    assert "TEAM_ROLLING_RUNS_SCORED_LAST_ALL_5_GAMES_DIFF_BEFORE" not in features
     assert not features.columns.duplicated().any()
     assert rolling["GAME_ID"].tolist() == ["2"]
     row = features.loc[features["GAME_ID"] == "2"].iloc[0]

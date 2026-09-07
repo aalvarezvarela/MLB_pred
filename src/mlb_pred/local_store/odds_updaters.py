@@ -64,7 +64,9 @@ def repair_all_opener_flags(seasons: list[int] | None = None) -> int:
     for season_year in targets:
         frame = read_table("odds_ticks", partitions=[season_year])
         repaired = normalize_opener_flags(frame)
-        changed += int((frame["is_opener"].to_numpy() != repaired["is_opener"].to_numpy()).sum())
+        changed += int(
+            (frame["is_opener"].to_numpy() != repaired["is_opener"].to_numpy()).sum()
+        )
         rewrite_partition("odds_ticks", season_year, repaired)
     return changed
 

@@ -29,7 +29,6 @@ import pyarrow.parquet as pq
 
 from mlb_pred.config.settings import PROJECT_ROOT
 from mlb_pred.features.market_normalization import (
-    CENTERED_AMERICAN_PRICE,
     center_run_lines,
     center_total_lines,
     devig_two_way_series,
@@ -38,6 +37,13 @@ from mlb_pred.odds.encoding import LINE_SCALE
 
 DEFAULT_CLOSE_SAFETY_MARGIN_MINUTES = 5
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "features" / "closing_lines"
+
+# Only these books quote every season in the store.  betmgm and betrivers
+# appear from 2022 and fanatics_sportsbook from 2025, so per-book columns for
+# them switch on in the middle of the history -- exactly across the split a
+# walk-forward model trains over.  They still contribute to the consensus
+# aggregates, where an absent book simply lowers BOOK_COUNT.
+STABLE_BOOKS: tuple[str, ...] = ("bet365", "caesars", "draftkings", "fanduel")
 
 MARKET_TOTALS = "totals"
 MARKET_RUN_LINE = "run_line"
@@ -303,12 +309,6 @@ def _add_book_features(
             f"{total_prefix}_LINE_NORMALIZED_MINUS_RAW": (
                 total["normalized_line"] - total["left_line"]
             ),
-            f"{total_prefix}_PRICE_OVER_NORMALIZED": pd.Series(
-                CENTERED_AMERICAN_PRICE, index=total.index
-            ),
-            f"{total_prefix}_PRICE_UNDER_NORMALIZED": pd.Series(
-                CENTERED_AMERICAN_PRICE, index=total.index
-            ),
             f"{total_prefix}_CLOSE_MINUTES_BEFORE_START": total["minutes_before_start"],
             f"{total_prefix}_CLOSE_TIMESTAMP_UTC": total["line_ts"],
         }
@@ -331,12 +331,6 @@ def _add_book_features(
             f"{run_prefix}_HOME_HANDICAP_NORMALIZED": -run_line["normalized_line"],
             f"{run_prefix}_HOME_HANDICAP_NORMALIZED_MINUS_RAW": (
                 -run_line["normalized_line"] - run_line["right_line"]
-            ),
-            f"{run_prefix}_PRICE_AWAY_NORMALIZED": pd.Series(
-                CENTERED_AMERICAN_PRICE, index=run_line.index
-            ),
-            f"{run_prefix}_PRICE_HOME_NORMALIZED": pd.Series(
-                CENTERED_AMERICAN_PRICE, index=run_line.index
             ),
             f"{run_prefix}_CLOSE_MINUTES_BEFORE_START": run_line[
                 "minutes_before_start"
@@ -396,8 +390,6 @@ def _ensure_book_schema(
         f"{total_prefix}_OVERROUND",
         f"{total_prefix}_LINE_NORMALIZED",
         f"{total_prefix}_LINE_NORMALIZED_MINUS_RAW",
-        f"{total_prefix}_PRICE_OVER_NORMALIZED",
-        f"{total_prefix}_PRICE_UNDER_NORMALIZED",
         f"{total_prefix}_CLOSE_MINUTES_BEFORE_START",
         f"{run_prefix}_AWAY_HANDICAP_RAW",
         f"{run_prefix}_HOME_HANDICAP_RAW",
@@ -409,8 +401,6 @@ def _ensure_book_schema(
         f"{run_prefix}_AWAY_HANDICAP_NORMALIZED",
         f"{run_prefix}_HOME_HANDICAP_NORMALIZED",
         f"{run_prefix}_HOME_HANDICAP_NORMALIZED_MINUS_RAW",
-        f"{run_prefix}_PRICE_AWAY_NORMALIZED",
-        f"{run_prefix}_PRICE_HOME_NORMALIZED",
         f"{run_prefix}_CLOSE_MINUTES_BEFORE_START",
         f"{money_prefix}_PRICE_AWAY_RAW",
         f"{money_prefix}_PRICE_HOME_RAW",
@@ -441,19 +431,14 @@ def _ensure_book_schema(
 def _add_distribution(output: pd.DataFrame, columns: list[str], *, prefix: str) -> None:
     if not columns:
         return
+    # Three statistics, not seven: measured across 17,638 games, STD and RANGE
+    # correlate 0.99, MEAN and MEDIAN 0.99, MAD is zero in 92.4% of rows and
+    # IQR in 71.0%.  Level, disagreement and how many books were quoting are
+    # what the remaining four were spelling out.
     values = output[columns].apply(pd.to_numeric, errors="coerce")
     output[f"{prefix}_BOOK_COUNT"] = values.notna().sum(axis=1).astype("int16")
-    output[f"{prefix}_MEAN"] = values.mean(axis=1, skipna=True)
     output[f"{prefix}_MEDIAN"] = values.median(axis=1, skipna=True)
     output[f"{prefix}_STD"] = values.std(axis=1, skipna=True, ddof=0)
-    output[f"{prefix}_RANGE"] = values.max(axis=1) - values.min(axis=1)
-    output[f"{prefix}_IQR"] = values.quantile(0.75, axis=1) - values.quantile(
-        0.25, axis=1
-    )
-    median = values.median(axis=1, skipna=True)
-    output[f"{prefix}_MAD"] = (
-        values.sub(median, axis=0).abs().median(axis=1, skipna=True)
-    )
 
 
 def _add_cross_book_features(output: pd.DataFrame) -> None:
@@ -568,10 +553,11 @@ def build_closing_line_features(
     )
     quotes = _with_normalized_market_values(closing)
 
-    selected_books = (
-        sorted(str(value) for value in quotes["book_slug"].dropna().unique())
+    quoted_books = {str(value) for value in quotes["book_slug"].dropna().unique()}
+    selected_books = sorted(
+        quoted_books.intersection(STABLE_BOOKS)
         if books is None
-        else sorted({str(value) for value in books})
+        else {str(value) for value in books}
     )
     labels = [_book_label(book) for book in selected_books]
     if len(labels) != len(set(labels)):

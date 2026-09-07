@@ -72,9 +72,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     before_season = None if args.all else (args.before_season or 2025)
-    if before_season is not None and (
-        before_season < 1876 or before_season > 2100
-    ):
+    if before_season is not None and (before_season < 1876 or before_season > 2100):
         print(f"Invalid --before-season: {args.before_season}")
         return 2
     if args.execute and not args.bucket:
@@ -87,7 +85,9 @@ def main() -> int:
         prefix=args.prefix,
     )
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    label = "all_parquet" if before_season is None else f"historical_before_{before_season}"
+    label = (
+        "all_parquet" if before_season is None else f"historical_before_{before_season}"
+    )
     manifest = args.manifest or (
         SETTINGS.raw_data_path.parent / "archive_manifests" / f"{label}_{stamp}.json"
     )

@@ -16,9 +16,10 @@ layer.
 
 Current state: the **sports-data, Statcast, and SportsbookReview odds layers
 are built**, together with leakage-safe closing totals/run lines/moneylines and
-NBA-shaped rolling team/market history under `src/mlb_pred/features/`. Injuries,
-the remaining feature families, modelling, prediction and settlement are not
-started. (The NBA repo's Yahoo odds scraper is deliberately not ported.)
+NBA-shaped rolling team/market history and player availability under
+`src/mlb_pred/features/`. The remaining feature families, modelling,
+prediction and settlement are not started. (The NBA repo's Yahoo odds scraper
+is deliberately not ported.)
 
 ## Reference material
 
@@ -56,10 +57,25 @@ started. (The NBA repo's Yahoo odds scraper is deliberately not ported.)
     latest complete quote at least five minutes before first pitch;
     `market_normalization.py` restates totals and run lines at equal
     `-110/-110` prices while preserving raw executable quotes;
-    `rolling_features.py` builds shifted team-game rolling history and pivots
-    it once into `_TEAM_HOME`, `_TEAM_AWAY`, and `_DIFF_BEFORE` columns;
-    `context_features.py` adds team one-hot identity, win record/streaks,
-    schedule density, rest, and series-aware travel.
+    `availability_features.py` builds final-lineup availability, transaction-
+    confirmed IL absences, empirical hitter effects, and starting-pitcher
+    history while excluding same-date games;
+    `rolling_features.py` builds shifted team-game rolling history under the
+    three-tier window scheme and pivots it into `_TEAM_HOME` / `_TEAM_AWAY`
+    (plus hand-picked `_DIFF_BEFORE` contrasts);
+    `context_features.py` adds win record/streaks, schedule density, rest, and
+    series-aware travel;
+    `market_movement.py` reads the tick path for opening line, open-to-close
+    drift, late movement and cross-book disagreement;
+    `environment_features.py` derives park geometry and expanding venue and
+    home-plate-umpire run environments;
+    `statcast_features.py` builds xwOBA-based team form for and against;
+    `bullpen_features.py` derives relief workload and quality from
+    `pitcher_appearances`.
+  - `create_training_data/training_frame.py` — the sole feature/score join
+    boundary. Recomputes and verifies `TOTAL_RUNS`, `RUN_LINE_MARGIN`,
+    `LINE_ERROR`, and `SPREAD_ERROR`, and exposes the outcome-safe model feature
+    allow-list.
   - `postgre_db/` — `config/db_config.py`, `schema.py` (DDL), `load.py`.
 - `scripts/` — thin CLI entry points:
   - `fetch_data/backfill_mlb_data.py`
@@ -70,6 +86,7 @@ started. (The NBA repo's Yahoo odds scraper is deliberately not ported.)
   - `fetch_data/backfill_statcast.py`, `update_databases/update_statcast.py`
   - `create_features/create_closing_lines.py`,
     `create_features/create_pregame_features.py`
+  - `create_train_data/create_train_data.py`
 - `data/` — local raw copy, **gitignored and regenerable**. Parquet,
   partitioned by season.
 - `tests/` — pytest, one file per concern.
@@ -99,10 +116,22 @@ started. (The NBA repo's Yahoo odds scraper is deliberately not ported.)
   Write pitch facts before `statcast_games` completion metadata.
 - **`_BEFORE` marks a leakage-safe, pre-game feature** (same convention as the
   NBA repo). Feature work must respect it.
-- **Feature-family prefixes are machine-readable.** `TEAM_IDENTITY_*` and
-  `TEAM_RECORD_*` cover team identity/form; `SCHEDULE_*` covers rest and
-  calendar load; `TRAVEL_*` covers geography/timezone load; `ODDS_*` covers
-  markets. Do not add an unlabelled model feature.
+- **Feature-family prefixes are machine-readable.** `TEAM_*` covers team form,
+  record, matchup and availability; `SCHEDULE_*` covers rest and calendar load;
+  `TRAVEL_*` covers geography/timezone load; `ODDS_*` covers markets; `PARK_*`,
+  `UMPIRE_*`, `STATCAST_*` and `BULLPEN_*` cover the run environment, contact
+  quality and relief staff. The list is enforced by
+  `FEATURE_FAMILY_PREFIXES` in `features/rolling_features.py`: adding a family
+  means adding it there. Do not add an unlabelled model feature.
+- **Temporal windows follow a three-tier scheme, not a flat template.**
+  `TEAM_ROLLING_TIERS` decides how much temporal treatment a metric earns:
+  tier 1 (8 run-scoring drivers) gets windows 1/3/5/10 plus split, WMA, season
+  mean/std and trends; tier 2 gets 5/10 plus season mean; tier 3 gets a season
+  mean only. This mirrors the NBA repo's pyramid. Do not apply the tier-1
+  template to a new metric without a reason.
+- **`HOME - AWAY` is not emitted per feature.** It is an exact linear
+  combination of the two side columns. Each module names the handful of
+  contrasts worth materialising in its own `DIFF_FEATURES`.
 
 ## Odds-layer conventions
 

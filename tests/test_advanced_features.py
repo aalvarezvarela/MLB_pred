@@ -178,10 +178,10 @@ def test_market_regime_excludes_every_result_from_the_current_date():
     # Game 1: actual total 8 against 7; spread margin 2 against a -1.5 handicap.
     for game_id in ("2", "3"):
         assert features.at[
-            game_id, "ODDS_MARKET_REGIME_TOTAL_BIAS_15G_BEFORE"
+            game_id, "ODDS_MARKET_REGIME_TOTAL_BIAS_30G_BEFORE"
         ] == pytest.approx(1.0)
         assert features.at[
-            game_id, "ODDS_MARKET_REGIME_SPREAD_BIAS_15G_BEFORE"
+            game_id, "ODDS_MARKET_REGIME_SPREAD_BIAS_30G_BEFORE"
         ] == pytest.approx(0.5)
 
     changed = _games()

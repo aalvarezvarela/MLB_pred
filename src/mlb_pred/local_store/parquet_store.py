@@ -188,9 +188,7 @@ def replace_game_rows(
         existing = pd.read_parquet(path) if path.exists() else pd.DataFrame()
         if not existing.empty:
             existing = existing[
-                ~existing[spec.game_column]
-                .astype(str)
-                .isin({str(v) for v in game_pks})
+                ~existing[spec.game_column].astype(str).isin({str(v) for v in game_pks})
             ]
         combined = pd.concat([existing, incoming], ignore_index=True)
         _atomic_write_parquet(_sorted(combined, spec), path)

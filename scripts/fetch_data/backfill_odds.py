@@ -63,9 +63,7 @@ def main() -> int:
         )
         return 1
 
-    seasons = args.seasons or list(
-        range(FIRST_ODDS_SEASON, mlb_slate_date().year + 1)
-    )
+    seasons = args.seasons or list(range(FIRST_ODDS_SEASON, mlb_slate_date().year + 1))
     fetches = read_table("odds_fetches")
     ticks = read_table("odds_ticks")
 

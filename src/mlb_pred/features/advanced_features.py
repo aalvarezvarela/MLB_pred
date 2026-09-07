@@ -36,13 +36,22 @@ from mlb_pred.config.constants import (
 
 PREGAME_TAG = "_BEFORE"
 
-MARKET_GAME_WINDOWS = (15, 30, 75, 150)
-MARKET_DAY_WINDOWS = (3, 7, 14)
-MARKET_EWM_SPANS = (15, 30, 75)
-MARKET_TAIL_THRESHOLDS = (2, 4, 6)
-MARKET_REGIME_PAIRS = ((15, 75), (30, 150))
+# League-wide market calibration. This is one slow-moving signal per market --
+# is the league currently landing over or under where it is being priced -- and
+# it was being spelled out ten different ways.  Two game windows keep a short
+# and a long read; the calendar-day windows were removed because a 7-day window
+# over a full slate is the same games as a 30-game window; one EWM span and one
+# tail threshold replace three of each.
+MARKET_GAME_WINDOWS = (30, 150)
+MARKET_EWM_SPANS = (30,)
+MARKET_TAIL_THRESHOLDS = (4,)
+MARKET_TAIL_WINDOWS = (30,)
+MARKET_REGIME_PAIRS = ((30, 150),)
 
-MATCHUP_WINDOWS = (5, 10, 20)
+# Matched to the rolling template's tier-1 windows. Window 20 was dropped
+# there (NBA has no window beyond 10), so asking for it here would fail loudly
+# rather than silently emit a column of neutrals.
+MATCHUP_WINDOWS = (5, 10)
 H2H_WINDOWS = (3, 5, 10)
 EXTRA_INNINGS_WINDOWS = (5, 10)
 
@@ -755,17 +764,6 @@ def _market_regime_columns(
             new[key(metric, label)] = _strict_prior_aggregate(
                 values, dates, window, functions.get(metric, "mean")
             )
-    for window in MARKET_DAY_WINDOWS:
-        label = f"{window}D"
-        for metric, values in metrics.items():
-            new[key(metric, label)] = _strict_prior_aggregate(
-                values,
-                dates,
-                window,
-                functions.get(metric, "mean"),
-                calendar_days=True,
-            )
-
     for span in MARKET_EWM_SPANS:
         new[key("BIAS_EWM", f"{span}G")] = _strict_prior_ewm(error, dates, span)
         new[key("MAE_EWM", f"{span}G")] = _strict_prior_ewm(abs_error, dates, span)
@@ -779,7 +777,7 @@ def _market_regime_columns(
             np.where(valid, abs_error.gt(threshold).astype(float), np.nan),
             index=error.index,
         )
-        for window in (15, 30, 75):
+        for window in MARKET_TAIL_WINDOWS:
             new[key(f"TAIL_GT_{threshold}", f"{window}G")] = _strict_prior_aggregate(
                 tail, dates, window, "mean"
             )

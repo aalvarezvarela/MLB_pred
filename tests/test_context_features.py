@@ -3,10 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from mlb_pred.features.context_features import (
-    build_context_features,
-    build_team_identity_features,
-)
+from mlb_pred.features.context_features import build_context_features
 
 
 def _games() -> pd.DataFrame:
@@ -103,25 +100,16 @@ def _closing() -> pd.DataFrame:
     )
 
 
-def test_team_identity_is_stable_two_sided_one_hot():
-    features = build_team_identity_features(_closing())
-    home = features.filter(regex=r"^TEAM_IDENTITY_HOME_")
-    away = features.filter(regex=r"^TEAM_IDENTITY_AWAY_")
+def test_team_identity_one_hots_are_not_emitted():
+    """The 30-team one-hot block was removed; identity stays in metadata.
 
-    assert home.shape[1] == 30
-    assert away.shape[1] == 30
-    assert home.sum(axis=1).eq(1).all()
-    assert away.sum(axis=1).eq(1).all()
-    assert features.loc[0, "TEAM_IDENTITY_HOME_NYM_BEFORE"] == 1
-    assert features.loc[0, "TEAM_IDENTITY_AWAY_NYY_BEFORE"] == 1
+    Sixty binary club-identity columns over 17.6k training rows is an
+    invitation to memorise. ``GAME_HOME_TEAM_ID`` / ``GAME_AWAY_TEAM_ID``
+    survive so a model can encode identity its own way.
+    """
+    features = build_context_features(_games(), _team_games(), _venues(), _closing())
 
-
-def test_unknown_team_id_raises_instead_of_emitting_an_all_zero_identity():
-    closing = _closing()
-    closing.loc[0, "GAME_HOME_TEAM_ID"] = "expansion-team"
-
-    with pytest.raises(ValueError, match="unknown MLB team ids"):
-        build_team_identity_features(closing)
+    assert not [c for c in features.columns if c.startswith("TEAM_IDENTITY_")]
 
 
 def test_doubleheader_record_and_schedule_features_are_date_gated():
@@ -134,9 +122,9 @@ def test_doubleheader_record_and_schedule_features_are_date_gated():
         assert (
             features.at[game_pk, "TEAM_RECORD_CURRENT_WIN_STREAK_BEFORE_TEAM_AWAY"] == 1
         )
-        assert (
-            features.at[game_pk, "TEAM_RECORD_WINS_LAST_5_GAMES_BEFORE_TEAM_AWAY"] == 1
-        )
+        # WINS_LAST_N was dropped: it correlates at r = 1.000000 with the
+        # ratio because GAMES_LAST_N is constant once history exists.
+        assert "TEAM_RECORD_WINS_LAST_5_GAMES_BEFORE_TEAM_AWAY" not in features.columns
         assert (
             features.at[game_pk, "TEAM_RECORD_WIN_RATIO_LAST_5_GAMES_BEFORE_TEAM_AWAY"]
             == 1
@@ -177,9 +165,9 @@ def test_current_result_perturbation_does_not_change_current_pregame_features():
         _games(), _team_games(), _venues(), _closing()
     ).set_index("GAME_ID")
     changed_results = _team_games()
-    changed_results.loc[
-        changed_results["game_pk"].eq("4"), "win"
-    ] = ~changed_results.loc[changed_results["game_pk"].eq("4"), "win"]
+    changed_results.loc[changed_results["game_pk"].eq("4"), "win"] = (
+        ~changed_results.loc[changed_results["game_pk"].eq("4"), "win"]
+    )
     changed = build_context_features(
         _games(), changed_results, _venues(), _closing()
     ).set_index("GAME_ID")
