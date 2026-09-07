@@ -124,8 +124,11 @@ def test_feature_columns_are_labeled_and_outcomes_are_physically_absent():
     assert "total_runs" not in features
     assert features.at[0, "ODDS_TOTAL_BET365_LINE_RAW"] == pytest.approx(8.5)
     assert features.at[0, "ODDS_TOTAL_BET365_LINE_NORMALIZED"] == pytest.approx(9.0)
-    assert features.at[0, "ODDS_TOTAL_BET365_PRICE_OVER_NORMALIZED"] == -110
-    assert features.at[0, "ODDS_TOTAL_BET365_PRICE_UNDER_NORMALIZED"] == -110
+    # The normalized price is -110 by definition of the restatement, so it was
+    # emitted as a constant column and is no longer written. The equal-price
+    # contract lives in the *line*, which is what shifts to absorb the vig.
+    assert "ODDS_TOTAL_BET365_PRICE_OVER_NORMALIZED" not in features.columns
+    assert "ODDS_TOTAL_BET365_PRICE_UNDER_NORMALIZED" not in features.columns
 
 
 def test_run_line_orientation_and_equal_pay_normalization_are_explicit():
@@ -139,8 +142,8 @@ def test_run_line_orientation_and_equal_pay_normalization_are_explicit():
     assert features.at[
         0, "ODDS_RUN_LINE_BET365_HOME_HANDICAP_NORMALIZED"
     ] == pytest.approx(-1.0)
-    assert features.at[0, "ODDS_RUN_LINE_BET365_PRICE_AWAY_NORMALIZED"] == -110
-    assert features.at[0, "ODDS_RUN_LINE_BET365_PRICE_HOME_NORMALIZED"] == -110
+    assert "ODDS_RUN_LINE_BET365_PRICE_AWAY_NORMALIZED" not in features.columns
+    assert "ODDS_RUN_LINE_BET365_PRICE_HOME_NORMALIZED" not in features.columns
 
 
 def test_invalid_run_line_pair_raises_instead_of_silently_flipping_a_side():

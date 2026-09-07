@@ -60,10 +60,16 @@ CONFIG_SCHEMA: dict[str, tuple[str, str, Any, Any]] = {
         "mlb_transactions",
     ),
     "schema_name_statcast_games": (
-        "Database", "SCHEMA_NAME_STATCAST_GAMES", str, "mlb_statcast"
+        "Database",
+        "SCHEMA_NAME_STATCAST_GAMES",
+        str,
+        "mlb_statcast",
     ),
     "schema_name_statcast_pitches": (
-        "Database", "SCHEMA_NAME_STATCAST_PITCHES", str, "mlb_statcast"
+        "Database",
+        "SCHEMA_NAME_STATCAST_PITCHES",
+        str,
+        "mlb_statcast",
     ),
     "schema_name_snapshots": (
         "Database",

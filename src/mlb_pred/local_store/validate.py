@@ -285,9 +285,9 @@ def check_umpires(umpires: pd.DataFrame, games: pd.DataFrame) -> list[Finding]:
 def check_odds_ticks(ticks: pd.DataFrame) -> list[Finding]:
     if ticks.empty:
         return []
-    opener_counts = ticks[ticks["is_opener"]].groupby(
-        ["game_pk", "market", "book_slug"]
-    ).size()
+    opener_counts = (
+        ticks[ticks["is_opener"]].groupby(["game_pk", "market", "book_slug"]).size()
+    )
     all_groups = ticks.groupby(["game_pk", "market", "book_slug"]).size()
     missing = all_groups[~all_groups.index.isin(opener_counts.index)]
     findings = _finding(
@@ -327,7 +327,11 @@ def check_statcast(
                 "Statcast pitch references a game absent from games",
             )
     if not statcast_games.empty:
-        actual = pitches.groupby("game_pk").size() if not pitches.empty else pd.Series(dtype=int)
+        actual = (
+            pitches.groupby("game_pk").size()
+            if not pitches.empty
+            else pd.Series(dtype=int)
+        )
         complete = statcast_games[statcast_games["fetch_status"] == "complete"].copy()
         complete["actual_rows"] = complete["game_pk"].map(actual).fillna(0).astype(int)
         findings += _finding(

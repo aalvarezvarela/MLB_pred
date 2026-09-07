@@ -8,7 +8,6 @@ before first pitch; realised game outcomes are never returned.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 from datetime import datetime, time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -16,7 +15,17 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import numpy as np
 import pandas as pd
 
-from mlb_pred.config.constants import TEAM_ABBREVIATION_MAP, TEAM_ID_MAP
+# Rest and travel are read as a home-versus-away contrast, and season win rate
+# is the standard form-gap column. Everything else keeps only its two side
+# columns; the difference is recoverable and a tree finds it unaided.
+DIFF_FEATURES: tuple[str, ...] = (
+    "SCHEDULE_REST_DAYS_BEFORE",
+    "SCHEDULE_GAMES_IN_LAST_7_DAYS_BEFORE",
+    "TRAVEL_LOG1P_KM_LAST_7_DAYS_BEFORE",
+    "TRAVEL_JETLAG_HOURS_FROM_PREVIOUS_SERIES_BEFORE",
+    "TEAM_RECORD_WIN_RATIO_SEASON_BEFORE",
+    "TEAM_RECORD_WIN_RATIO_LAST_10_GAMES_BEFORE",
+)
 
 FIRST_GAME_REST_DAYS = 7
 WIN_WINDOWS = (5, 10, 20, 30)
@@ -56,40 +65,6 @@ def _require_columns(
     missing = sorted(required.difference(frame.columns))
     if missing:
         raise ValueError(f"{frame_name} is missing required columns: {missing}")
-
-
-def _team_slug(team_name: str) -> str:
-    abbreviation = TEAM_ABBREVIATION_MAP[team_name]
-    return re.sub(r"[^A-Z0-9]+", "_", abbreviation.upper()).strip("_")
-
-
-def build_team_identity_features(closing_features: pd.DataFrame) -> pd.DataFrame:
-    """Add a stable 30-team one-hot block for each game side."""
-    required = {"GAME_ID", "GAME_HOME_TEAM_ID", "GAME_AWAY_TEAM_ID"}
-    _require_columns(closing_features, required, frame_name="closing features")
-    home_ids = closing_features["GAME_HOME_TEAM_ID"].astype(str)
-    away_ids = closing_features["GAME_AWAY_TEAM_ID"].astype(str)
-    known_ids = set(TEAM_ID_MAP.values())
-    unknown = sorted((set(home_ids) | set(away_ids)).difference(known_ids))
-    if unknown:
-        raise ValueError(f"Cannot one-hot encode unknown MLB team ids: {unknown}")
-
-    features: dict[str, pd.Series] = {}
-    for team_name, team_id in sorted(TEAM_ID_MAP.items()):
-        slug = _team_slug(team_name)
-        features[f"TEAM_IDENTITY_HOME_{slug}_BEFORE"] = home_ids.eq(team_id).astype(
-            "int8"
-        )
-        features[f"TEAM_IDENTITY_AWAY_{slug}_BEFORE"] = away_ids.eq(team_id).astype(
-            "int8"
-        )
-    return pd.concat(
-        [
-            closing_features[["GAME_ID"]].reset_index(drop=True),
-            pd.DataFrame(features).reset_index(drop=True),
-        ],
-        axis=1,
-    )
 
 
 def _venue_lookup(venues: pd.DataFrame) -> pd.DataFrame:
@@ -455,14 +430,12 @@ def _add_win_features(log: pd.DataFrame) -> pd.DataFrame:
         "TEAM_RECORD_HAS_CURRENT_SEASON_HISTORY_BEFORE",
         "TEAM_RECORD_CURRENT_WIN_STREAK_BEFORE",
     ]
+    # Only the ratio: measured over 17,638 games, WINS_LAST_N and
+    # WIN_RATIO_LAST_N correlate at r = 1.000000 because GAMES_LAST_N is
+    # constant once a team has N games of history. The season-level pair is
+    # kept because games played genuinely varies there.
     for window in WIN_WINDOWS:
-        feature_names.extend(
-            [
-                f"TEAM_RECORD_WINS_LAST_{window}_GAMES_BEFORE",
-                f"TEAM_RECORD_GAMES_LAST_{window}_BEFORE",
-                f"TEAM_RECORD_WIN_RATIO_LAST_{window}_GAMES_BEFORE",
-            ]
-        )
+        feature_names.append(f"TEAM_RECORD_WIN_RATIO_LAST_{window}_GAMES_BEFORE")
     values = {name: np.zeros(len(out), dtype="float64") for name in feature_names}
 
     for team_id, team_indices in out.groupby("team_id", sort=False).groups.items():
@@ -494,15 +467,10 @@ def _add_win_features(log: pd.DataFrame) -> pd.DataFrame:
                 ]
                 for window in WIN_WINDOWS:
                     recent = history[-window:]
-                    wins = float(sum(recent))
                     games = float(len(recent))
-                    values[f"TEAM_RECORD_WINS_LAST_{window}_GAMES_BEFORE"][position] = (
-                        wins
-                    )
-                    values[f"TEAM_RECORD_GAMES_LAST_{window}_BEFORE"][position] = games
                     values[f"TEAM_RECORD_WIN_RATIO_LAST_{window}_GAMES_BEFORE"][
                         position
-                    ] = wins / games if games else NEUTRAL_WIN_RATIO
+                    ] = (float(sum(recent)) / games if games else NEUTRAL_WIN_RATIO)
 
             for position in positions:
                 result = out.at[position, "win"]
@@ -550,16 +518,18 @@ def _wide_team_features(
     )
     wide = home.merge(away, on="game_pk", how="inner", validate="one_to_one")
     wide = wide.rename(columns={"game_pk": "GAME_ID"})
-    differences: dict[str, pd.Series] = {}
-    for column in feature_columns:
-        difference = (
-            column.removesuffix("_BEFORE") + "_DIFF_BEFORE"
-            if column.endswith("_BEFORE")
-            else f"{column}_DIFF_BEFORE"
-        )
-        differences[difference] = (
-            wide[f"{column}_TEAM_HOME"] - wide[f"{column}_TEAM_AWAY"]
-        )
+    # HOME - AWAY is an exact linear combination of the two side columns, so it
+    # is emitted only for the contrasts that are read as a contrast. NBA does
+    # the same, hand-picking three.
+    missing = sorted(set(DIFF_FEATURES).difference(feature_columns))
+    if missing:
+        raise ValueError(f"DIFF_FEATURES names unknown context columns: {missing}")
+    differences = {
+        column.removesuffix("_BEFORE")
+        + "_DIFF_BEFORE": wide[f"{column}_TEAM_HOME"]
+        - wide[f"{column}_TEAM_AWAY"]
+        for column in DIFF_FEATURES
+    }
     wide = pd.concat([wide, pd.DataFrame(differences, index=wide.index)], axis=1)
     wide["SCHEDULE_BOTH_TEAMS_NO_REST_BEFORE"] = (
         wide["SCHEDULE_IS_NO_REST_BEFORE_TEAM_HOME"].eq(1)
@@ -576,7 +546,13 @@ def build_context_features(
     *,
     target_game_ids: Iterable[str] | None = None,
 ) -> pd.DataFrame:
-    """Build and combine one-hot identity, schedule, travel, and win form."""
+    """Build schedule, travel and win-form features for the target games.
+
+    The 30-team one-hot block was removed: 60 binary columns of club identity
+    over 17,638 rows is an invitation to memorise, and ``GAME_HOME_TEAM_ID`` /
+    ``GAME_AWAY_TEAM_ID`` survive as metadata for any model that wants to
+    encode team identity its own way.
+    """
     targets = (
         {str(value) for value in target_game_ids}
         if target_game_ids is not None
@@ -585,8 +561,4 @@ def build_context_features(
     log = _build_team_log(games, team_games, venues)
     log = _add_schedule_features(log)
     log = _add_win_features(log)
-    wide = _wide_team_features(log, targets)
-    identity = build_team_identity_features(
-        closing_features.loc[closing_features["GAME_ID"].astype(str).isin(targets)]
-    )
-    return identity.merge(wide, on="GAME_ID", how="inner", validate="one_to_one")
+    return _wide_team_features(log, targets)

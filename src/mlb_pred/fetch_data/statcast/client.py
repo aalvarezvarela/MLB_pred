@@ -158,14 +158,20 @@ def normalize_statcast_frame(
         frame["game_pk"] = game_pk
     frame["game_pk"] = frame["game_pk"].map(as_id)
     frame["batter_id"] = frame.get("batter_id", pd.Series(index=frame.index)).map(as_id)
-    frame["pitcher_id"] = frame.get("pitcher_id", pd.Series(index=frame.index)).map(as_id)
+    frame["pitcher_id"] = frame.get("pitcher_id", pd.Series(index=frame.index)).map(
+        as_id
+    )
     frame["season_year"] = season_year
     for column in STATCAST_COLUMNS:
         if column not in frame:
             frame[column] = None
     frame = frame.dropna(subset=["at_bat_number", "pitch_number"])
-    frame["at_bat_number"] = pd.to_numeric(frame["at_bat_number"], errors="raise").astype(int)
-    frame["pitch_number"] = pd.to_numeric(frame["pitch_number"], errors="raise").astype(int)
+    frame["at_bat_number"] = pd.to_numeric(
+        frame["at_bat_number"], errors="raise"
+    ).astype(int)
+    frame["pitch_number"] = pd.to_numeric(frame["pitch_number"], errors="raise").astype(
+        int
+    )
     frame["game_date"] = pd.to_datetime(frame["game_date"], errors="coerce").dt.date
     return frame[list(STATCAST_COLUMNS)].drop_duplicates(
         ["game_pk", "at_bat_number", "pitch_number"], keep="last"

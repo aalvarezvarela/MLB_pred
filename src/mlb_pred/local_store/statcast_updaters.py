@@ -57,9 +57,7 @@ def update_statcast(
         status_frame = pd.DataFrame(statuses)
         game_pks = set(status_frame["game_pk"].astype(str))
         pitch_frame = (
-            pd.concat(pitches, ignore_index=True)
-            if pitches
-            else pd.DataFrame()
+            pd.concat(pitches, ignore_index=True) if pitches else pd.DataFrame()
         )
         # Facts first, completion marker last. A crash can cause a harmless
         # re-fetch, never a false "complete" game.

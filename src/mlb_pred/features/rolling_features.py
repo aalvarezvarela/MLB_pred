@@ -26,17 +26,132 @@ from mlb_pred.config.settings import PROJECT_ROOT
 
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "features" / "pregame"
 
-MLB_WINDOWS = (1, 2, 3, 5, 10, 20, 30)
-# Preserve NBA's canonical last-5, short 1/2/3, last-10, WMA-5, and 5/10
-# trend family. MLB also gets longer 20/30-game context.
-BASE_WINDOW = 5
-LONG_WINDOWS = (10, 20, 30)
-TREND_WINDOWS = (5, 10)
 REGULAR_SEASON_GAME_TYPE = "R"
 NO_HISTORY_VALUE = 0.0
 
-# NBA rolls a curated set rather than every raw box-score field. These are the
-# MLB equivalents: outcomes/volume plus stable offensive and pitching rates.
+# Every column leaving the pregame builder must carry one of these family
+# prefixes. Adding a family means adding it here, which is what keeps the
+# prefixes machine-readable rather than merely conventional.
+FEATURE_FAMILY_PREFIXES: tuple[str, ...] = (
+    "GAME_",
+    "ODDS_",
+    "TEAM_",
+    "SCHEDULE_",
+    "TRAVEL_",
+    "PARK_",
+    "UMPIRE_",
+    "STATCAST_",
+    "BULLPEN_",
+)
+
+# Families built purely from history. Unlike GAME_/ODDS_, which may legally
+# carry the current game's own schedule facts and closing quotes, every column
+# in these must declare the _BEFORE tag.
+_HISTORICAL_FAMILY_PREFIXES: tuple[str, ...] = (
+    "TEAM_",
+    "SCHEDULE_",
+    "TRAVEL_",
+    "PARK_",
+    "UMPIRE_",
+    "STATCAST_",
+    "BULLPEN_",
+)
+
+# Window scheme, aligned with the NBA project (see
+# ``NBA_over_under_predictor/src/nba_ou/data_processing/team/rolling.py``).
+# NBA is a pyramid: a broad set of metrics gets last-5 plus a season average,
+# and only a hand-picked few (``COLS_FOR_SHORT_WINDOWS``: points, points per
+# 40, the total line, and the diff from the line) get short windows, weighted
+# means and trends.  MLB previously applied that privileged template to ~59
+# metrics and added windows 20 and 30 that NBA does not have at all, which is
+# where most of the column count came from.
+BASE_WINDOW = 5
+TIER1_WINDOWS = (1, 3, 5, 10)
+TIER2_WINDOWS = (5, 10)
+TREND_WINDOWS = (5, 10)
+
+# Tier 1 -- the run-scoring drivers and the market-miss history.  These get the
+# full template: short/medium windows, home-away split, weighted mean, season
+# mean and std, short-minus-long, and trends.
+TIER1 = 1
+# Tier 2 -- stable rate statistics.  Last-5, last-10, season mean.
+TIER2 = 2
+# Tier 3 -- slow-moving roster/context descriptors.  Season mean only.
+TIER3 = 3
+
+TEAM_ROLLING_TIERS: dict[str, int] = {
+    # Tier 1: what actually produces runs.
+    "RUNS_SCORED": TIER1,
+    "RUNS_ALLOWED": TIER1,
+    "TOTAL_RUNS": TIER1,
+    "RUN_MARGIN": TIER1,
+    "OFFENSE_RUNS_PER_PA": TIER1,
+    "OFFENSE_OBP": TIER1,
+    "OFFENSE_SLG": TIER1,
+    "PITCHING_ERA_PER_9": TIER1,
+    # Tier 2: rates that describe how those runs are produced or prevented.
+    "OFFENSE_K_PCT": TIER2,
+    "OFFENSE_BB_PCT": TIER2,
+    "OFFENSE_HR_PER_PA": TIER2,
+    "OFFENSE_ISO": TIER2,
+    "OFFENSE_TOTAL_BASES_PER_PA": TIER2,
+    "OFFENSE_BASERUNNERS_PER_PA": TIER2,
+    "OFFENSE_BABIP": TIER2,
+    "PITCHING_K_PCT": TIER2,
+    "PITCHING_BB_PCT": TIER2,
+    "PITCHING_HR_PER_BF": TIER2,
+    "PITCHING_WHIP": TIER2,
+    "PITCHING_BASERUNNERS_PER_BF": TIER2,
+    "PITCHING_STRIKE_PCT": TIER2,
+    "WIN_RATE": TIER2,
+    "PLATE_APPEARANCES": TIER2,
+    "PITCHES_THROWN": TIER2,
+    # Tier 3: roster shape and slow context.
+    "BULLPEN_SIZE": TIER3,
+    "BENCH_SIZE": TIER3,
+    "PITCHERS_USED": TIER3,
+    "BATTERS_USED": TIER3,
+    # Kept only because the matchup layer crosses a team's plate appearances
+    # with the opponent's batters faced to size an expected game.
+    "BATTERS_FACED": TIER3,
+    "FIELDING_ERRORS_PER_OUT": TIER3,
+    "GROUNDED_INTO_DOUBLE_PLAY": TIER3,
+    "STOLEN_BASES": TIER3,
+    "LEFT_ON_BASE": TIER3,
+    "OFFENSE_GROUND_OUT_RATE": TIER3,
+    "PITCHING_GROUND_OUT_RATE": TIER3,
+}
+
+# Only these market series are rolled per team.  Per-book rolling histories
+# were near-duplicates of the consensus one (per-book closing totals correlate
+# 0.955-0.984 with the consensus median) and three of the seven books do not
+# exist before 2022/2025, so a per-book history injects a structural break in
+# the middle of any walk-forward split.
+ODDS_ROLLING_TIERS: dict[str, int] = {
+    # NBA gives ``DIFF_FROM_LINE`` the privileged template; this is its MLB
+    # counterpart -- how far this team's games have been landing from the line.
+    "ODDS_HISTORY_TOTAL_MARKET_ERROR": TIER1,
+    "ODDS_HISTORY_TOTAL_MARKET_ABS_ERROR": TIER1,
+    "ODDS_HISTORY_RUN_LINE_MARGIN_ERROR": TIER1,
+    "ODDS_HISTORY_RUN_LINE_MARGIN_ABS_ERROR": TIER1,
+    # The level of the market this team has been priced at lately.
+    "ODDS_TOTAL_CONSENSUS_LINE_NORMALIZED_MEDIAN": TIER2,
+    "ODDS_RUN_LINE_CONSENSUS_TEAM_HANDICAP_NORMALIZED_MEDIAN": TIER2,
+    "ODDS_MONEY_LINE_CONSENSUS_FAIR_PROB_TEAM_WIN_MEDIAN": TIER2,
+}
+
+# ``HOME - AWAY`` is an exact linear combination of the two side columns, so
+# emitting it for every feature triples the width for no added rank.  NBA emits
+# three hand-picked diffs; these are the MLB equivalents.
+DIFF_FEATURES: tuple[str, ...] = (
+    "TEAM_ROLLING_RUN_MARGIN_LAST_ALL_10_GAMES_BEFORE",
+    "TEAM_ROLLING_RUNS_SCORED_SEASON_BEFORE_AVG",
+    "TEAM_ROLLING_RUNS_ALLOWED_SEASON_BEFORE_AVG",
+    "TEAM_ROLLING_PITCHING_ERA_PER_9_SEASON_BEFORE_AVG",
+    "TEAM_ROLLING_WIN_RATE_SEASON_BEFORE_AVG",
+    "ODDS_HISTORY_TOTAL_MARKET_ERROR_LAST_ALL_5_GAMES_BEFORE",
+)
+
 TEAM_SOURCE_COLUMNS: dict[str, str] = {
     "runs_scored": "RUNS_SCORED",
     "runs_allowed": "RUNS_ALLOWED",
@@ -44,30 +159,11 @@ TEAM_SOURCE_COLUMNS: dict[str, str] = {
     "total_runs": "TOTAL_RUNS",
     "win": "WIN_RATE",
     "plate_appearances": "PLATE_APPEARANCES",
-    "at_bats": "AT_BATS",
-    "outs_recorded": "OUTS_RECORDED",
-    "batters_faced": "BATTERS_FACED",
     "pitches_thrown": "PITCHES_THROWN",
-    "baserunners_allowed": "BASERUNNERS_ALLOWED",
+    "batters_faced": "BATTERS_FACED",
     "left_on_base": "LEFT_ON_BASE",
-    "hits": "HITS",
-    "doubles": "DOUBLES",
-    "triples": "TRIPLES",
-    "home_runs": "HOME_RUNS",
-    "total_bases": "TOTAL_BASES",
-    "walks": "WALKS",
-    "strikeouts": "STRIKEOUTS",
-    "hit_by_pitch": "HIT_BY_PITCH",
     "stolen_bases": "STOLEN_BASES",
     "grounded_into_double_play": "GROUNDED_INTO_DOUBLE_PLAY",
-    "hits_allowed": "HITS_ALLOWED",
-    "home_runs_allowed": "HOME_RUNS_ALLOWED",
-    "walks_allowed": "WALKS_ALLOWED",
-    "strikeouts_thrown": "STRIKEOUTS_THROWN",
-    "hit_batsmen": "HIT_BATSMEN",
-    "earned_runs": "EARNED_RUNS",
-    "wild_pitches": "WILD_PITCHES",
-    "errors": "FIELDING_ERRORS",
     "batters_used": "BATTERS_USED",
     "pitchers_used": "PITCHERS_USED",
     "bullpen_size": "BULLPEN_SIZE",
@@ -80,66 +176,42 @@ TEAM_SOURCE_COLUMNS: dict[str, str] = {
     "k_pct": "OFFENSE_K_PCT",
     "bb_pct": "OFFENSE_BB_PCT",
     "hr_per_pa": "OFFENSE_HR_PER_PA",
-    "ground_out_air_out_ratio": "OFFENSE_GROUND_OUT_AIR_OUT_RATIO",
     "k_pct_allowed": "PITCHING_K_PCT",
     "bb_pct_allowed": "PITCHING_BB_PCT",
     "hr_per_bf_allowed": "PITCHING_HR_PER_BF",
     "whip": "PITCHING_WHIP",
-    "pitches_per_batter_faced": "PITCHING_PITCHES_PER_BF",
     "strike_pct": "PITCHING_STRIKE_PCT",
 }
 
 DERIVED_RATE_COLUMNS: dict[str, str] = {
-    "__offense_hits_per_pa": "OFFENSE_HITS_PER_PA",
-    "__offense_extra_base_hits_per_pa": "OFFENSE_EXTRA_BASE_HITS_PER_PA",
     "__offense_total_bases_per_pa": "OFFENSE_TOTAL_BASES_PER_PA",
     "__offense_baserunners_per_pa": "OFFENSE_BASERUNNERS_PER_PA",
-    "__offense_stolen_base_attempts_per_pa": "OFFENSE_SB_ATTEMPTS_PER_PA",
     "__offense_ground_out_rate": "OFFENSE_GROUND_OUT_RATE",
     "__pitching_era_per_9": "PITCHING_ERA_PER_9",
     "__pitching_baserunners_per_bf": "PITCHING_BASERUNNERS_PER_BF",
-    "__pitching_pitches_per_out": "PITCHING_PITCHES_PER_OUT",
     "__pitching_ground_out_rate": "PITCHING_GROUND_OUT_RATE",
     "__fielding_errors_per_out": "FIELDING_ERRORS_PER_OUT",
 }
 
+# Raw box-score columns that are no longer rolled in their own right but are
+# still read to build the derived rates above.  They stay required so a
+# malformed team_games frame still fails loudly.
 DERIVED_RATE_SOURCE_COLUMNS = {
     "air_outs",
-    "caught_stealing",
+    "baserunners_allowed",
+    "batters_faced",
+    "earned_runs",
+    "errors",
     "ground_outs",
+    "hit_by_pitch",
+    "hits",
+    "outs_recorded",
     "pitching_air_outs",
     "pitching_ground_outs",
+    "total_bases",
+    "walks",
 }
 
-# Like NBA's short-list, these get the complete 1/2/3/5/10/20/30 family,
-# weighted means and trends. Every other source still gets last-10, split,
-# season mean/std, observation count, and recent/season ratio.
-EXTENDED_TEAM_LABELS = {
-    "RUNS_SCORED",
-    "RUNS_ALLOWED",
-    "RUN_MARGIN",
-    "TOTAL_RUNS",
-    "PLATE_APPEARANCES",
-    "PITCHES_THROWN",
-    "OFFENSE_OBP",
-    "OFFENSE_SLG",
-    "OFFENSE_ISO",
-    "OFFENSE_RUNS_PER_PA",
-    "OFFENSE_K_PCT",
-    "OFFENSE_BB_PCT",
-    "OFFENSE_HR_PER_PA",
-    "PITCHING_K_PCT",
-    "PITCHING_BB_PCT",
-    "PITCHING_HR_PER_BF",
-    "PITCHING_WHIP",
-    "PITCHING_PITCHES_PER_BF",
-    "PITCHING_STRIKE_PCT",
-    "OFFENSE_HITS_PER_PA",
-    "OFFENSE_EXTRA_BASE_HITS_PER_PA",
-    "OFFENSE_TOTAL_BASES_PER_PA",
-    "PITCHING_ERA_PER_9",
-    "PITCHING_BASERUNNERS_PER_BF",
-}
 
 _TEAM_REQUIRED = {
     "game_pk",
@@ -180,22 +252,11 @@ def _ratio(frame: pd.DataFrame, numerator: str, denominator: str) -> pd.Series:
 
 def _add_derived_rates(frame: pd.DataFrame) -> pd.DataFrame:
     out = frame.copy()
-    out["__offense_hits_per_pa"] = _ratio(out, "hits", "plate_appearances")
-    out["__offense_extra_base_hits_per_pa"] = _safe_ratio(
-        out["doubles"] + out["triples"] + out["home_runs"],
-        out["plate_appearances"],
-        fill_no_history=False,
-    )
     out["__offense_total_bases_per_pa"] = _ratio(
         out, "total_bases", "plate_appearances"
     )
     out["__offense_baserunners_per_pa"] = _safe_ratio(
         out["hits"] + out["walks"] + out["hit_by_pitch"],
-        out["plate_appearances"],
-        fill_no_history=False,
-    )
-    out["__offense_stolen_base_attempts_per_pa"] = _safe_ratio(
-        out["stolen_bases"] + out["caught_stealing"],
         out["plate_appearances"],
         fill_no_history=False,
     )
@@ -212,7 +273,6 @@ def _add_derived_rates(frame: pd.DataFrame) -> pd.DataFrame:
     out["__pitching_baserunners_per_bf"] = _ratio(
         out, "baserunners_allowed", "batters_faced"
     )
-    out["__pitching_pitches_per_out"] = _ratio(out, "pitches_thrown", "outs_recorded")
     out["__pitching_ground_out_rate"] = _safe_ratio(
         out["pitching_ground_outs"],
         out["pitching_ground_outs"] + out["pitching_air_outs"],
@@ -410,8 +470,14 @@ def _rolling_source_features(
     source: str,
     label: str,
     *,
-    extended: bool,
+    tier: int,
 ) -> dict[str, pd.Series]:
+    """Emit one metric's temporal family at the depth its tier allows.
+
+    Tier 3 gets a season mean only, tier 2 adds last-5/last-10, and tier 1 adds
+    the short windows, home/away split, weighted mean, season std, the
+    short-minus-long contrast and trend slopes.
+    """
     prefix = _source_prefix(label)
     previous_mean = _previous_regular_stat(
         frame, source, extra_keys=[], function="mean"
@@ -419,28 +485,7 @@ def _rolling_source_features(
     previous_venue_mean = _previous_regular_stat(
         frame, source, extra_keys=["home"], function="mean"
     )
-    previous_std = _previous_regular_stat(
-        frame, source, extra_keys=["home"], function="std"
-    )
 
-    raw_base = _rolling(
-        frame,
-        source,
-        group_keys=["team_id"],
-        window=BASE_WINDOW,
-        function="mean",
-    )
-    base = _fill_mean_history(raw_base, previous_mean)
-    venue = _fill_mean_history(
-        _rolling(
-            frame,
-            source,
-            group_keys=["team_id", "home"],
-            window=BASE_WINDOW,
-            function="mean",
-        ),
-        previous_venue_mean,
-    )
     season_mean = _fill_mean_history(
         _expanding(
             frame,
@@ -449,44 +494,15 @@ def _rolling_source_features(
             function="mean",
         ),
         previous_venue_mean,
-        base,
     )
-    season_std = _fill_mean_history(
-        _expanding(
-            frame,
-            source,
-            group_keys=["team_id", "season_year", "home"],
-            function="std",
-        ),
-        previous_std,
-    )
-    observation_count = _rolling(
-        frame,
-        source,
-        group_keys=["team_id"],
-        window=BASE_WINDOW,
-        function="count",
-    ).fillna(0.0)
+    features: dict[str, pd.Series] = {f"{prefix}_SEASON_BEFORE_AVG": season_mean}
+    if tier >= TIER3:
+        if tier == TIER3:
+            return features
 
-    features: dict[str, pd.Series] = {
-        f"{prefix}_LAST_ALL_{BASE_WINDOW}_GAMES_BEFORE": base,
-        f"{prefix}_LAST_HOME_AWAY_{BASE_WINDOW}_GAMES_BEFORE": venue - base,
-        f"{prefix}_LAST_{BASE_WINDOW}_OBSERVATIONS_BEFORE": observation_count,
-        f"{prefix}_SEASON_BEFORE_AVG": season_mean,
-        f"{prefix}_SEASON_BEFORE_STD": season_std,
-        (
-            f"TEAM_RATIO_{label}_LAST_{BASE_WINDOW}_DIV_SEASON_AVG_BEFORE"
-            if not label.startswith("ODDS_")
-            else f"{label}_LAST_{BASE_WINDOW}_DIV_SEASON_AVG_BEFORE"
-        ): _safe_ratio(base, season_mean),
-    }
-    if not extended:
-        return features
-
-    rolling_means: dict[int, pd.Series] = {BASE_WINDOW: base}
-    for window in MLB_WINDOWS:
-        if window == BASE_WINDOW:
-            continue
+    windows = TIER1_WINDOWS if tier == TIER1 else TIER2_WINDOWS
+    rolling_means: dict[int, pd.Series] = {}
+    for window in windows:
         rolling_means[window] = _fill_mean_history(
             _rolling(
                 frame,
@@ -498,13 +514,34 @@ def _rolling_source_features(
             previous_mean,
         )
         features[f"{prefix}_LAST_ALL_{window}_GAMES_BEFORE"] = rolling_means[window]
+    if tier == TIER2:
+        return features
 
-    for long_window in LONG_WINDOWS:
-        features[
-            f"{prefix}_LAST_{BASE_WINDOW}_MINUS_LAST_{long_window}_GAMES_BEFORE"
-        ] = (base - rolling_means[long_window])
-
-    weighted = _fill_mean_history(
+    base = rolling_means[BASE_WINDOW]
+    venue = _fill_mean_history(
+        _rolling(
+            frame,
+            source,
+            group_keys=["team_id", "home"],
+            window=BASE_WINDOW,
+            function="mean",
+        ),
+        previous_venue_mean,
+    )
+    features[f"{prefix}_LAST_HOME_AWAY_{BASE_WINDOW}_GAMES_BEFORE"] = venue - base
+    features[f"{prefix}_SEASON_BEFORE_STD"] = _fill_mean_history(
+        _expanding(
+            frame,
+            source,
+            group_keys=["team_id", "season_year", "home"],
+            function="std",
+        ),
+        _previous_regular_stat(frame, source, extra_keys=["home"], function="std"),
+    )
+    features[f"{prefix}_LAST_{BASE_WINDOW}_MINUS_LAST_10_GAMES_BEFORE"] = (
+        base - rolling_means[10]
+    )
+    features[f"{prefix}_LAST_{BASE_WINDOW}_WMA_BEFORE"] = _fill_mean_history(
         _rolling(
             frame,
             source,
@@ -514,24 +551,8 @@ def _rolling_source_features(
         ),
         previous_mean,
     )
-    weighted_venue = _fill_mean_history(
-        _rolling(
-            frame,
-            source,
-            group_keys=["team_id", "home"],
-            window=BASE_WINDOW,
-            function="wma",
-        ),
-        previous_venue_mean,
-    )
-    features[f"{prefix}_LAST_{BASE_WINDOW}_WMA_BEFORE"] = weighted
-    features[f"{prefix}_LAST_HOME_AWAY_{BASE_WINDOW}_WMA_BEFORE"] = (
-        weighted_venue - weighted
-    )
-
-    trends: dict[int, pd.Series] = {}
     for window in TREND_WINDOWS:
-        trend = (
+        features[f"{prefix}_TREND_SLOPE_LAST_{window}_GAMES_BEFORE"] = (
             _rolling(
                 frame,
                 source,
@@ -544,30 +565,6 @@ def _rolling_source_features(
             )
             .fillna(NO_HISTORY_VALUE)
         )
-        trends[window] = trend
-        features[f"{prefix}_TREND_SLOPE_LAST_{window}_GAMES_BEFORE"] = trend
-
-    venue_trend = (
-        _rolling(
-            frame,
-            source,
-            group_keys=["team_id", "season_year", "home"],
-            window=BASE_WINDOW,
-            function="slope",
-        )
-        .fillna(
-            _previous_regular_trend(
-                frame, source, extra_keys=["home"], window=BASE_WINDOW
-            )
-        )
-        .fillna(NO_HISTORY_VALUE)
-    )
-    features[f"{prefix}_TREND_SLOPE_LAST_{BASE_WINDOW}_HOME_AWAY_GAMES_BEFORE"] = (
-        venue_trend - trends[BASE_WINDOW]
-    )
-    features[f"{prefix}_TREND_SLOPE_LAST_{BASE_WINDOW}_MINUS_LAST_10_GAMES_BEFORE"] = (
-        trends[BASE_WINDOW] - trends[10]
-    )
     return features
 
 
@@ -631,6 +628,14 @@ def _prepare_team_context(
 def _attach_market_sources(
     context: pd.DataFrame, closing_features: pd.DataFrame
 ) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Attach the consensus market series each team is rolled against.
+
+    Only consensus quantities are rolled.  Per-book rolling histories were
+    near-duplicates of these and, because three of the seven books start
+    mid-history, they also drifted structurally across a walk-forward split.
+    Run-line and moneyline series are restated from the rolling team's own side
+    so a single history means the same thing home and away.
+    """
     if "GAME_ID" not in closing_features:
         raise ValueError("closing features is missing GAME_ID.")
     if closing_features["GAME_ID"].astype(str).duplicated().any():
@@ -642,86 +647,16 @@ def _attach_market_sources(
     home = context["home"]
     sources: dict[str, str] = {}
 
-    # Totals are game-level; normalized lines are the comparable level.
-    total_columns = [
-        column
-        for column in closing.columns
-        if column.startswith("ODDS_TOTAL_")
-        and column.endswith("_LINE_NORMALIZED")
-        and "_CONSENSUS_" not in column
-    ]
-    for column in total_columns:
-        context[f"__{column}"] = game_ids.map(closing[column])
-        sources[f"__{column}"] = column
-
     total_consensus = "ODDS_TOTAL_CONSENSUS_LINE_NORMALIZED_MEDIAN"
     if total_consensus in closing:
         context[f"__{total_consensus}"] = game_ids.map(closing[total_consensus])
         sources[f"__{total_consensus}"] = total_consensus
-
-    # Run-line and moneyline histories must be expressed from this team's side.
-    home_run_columns = [
-        column
-        for column in closing.columns
-        if column.startswith("ODDS_RUN_LINE_")
-        and column.endswith("_HOME_HANDICAP_NORMALIZED")
-        and "_CONSENSUS_" not in column
-    ]
-    for home_column in home_run_columns:
-        away_column = home_column.replace(
-            "_HOME_HANDICAP_NORMALIZED", "_AWAY_HANDICAP_NORMALIZED"
-        )
-        if away_column not in closing:
-            continue
-        label = home_column.replace(
-            "_HOME_HANDICAP_NORMALIZED", "_TEAM_HANDICAP_NORMALIZED"
-        )
-        home_values = game_ids.map(closing[home_column])
-        away_values = game_ids.map(closing[away_column])
-        context[f"__{label}"] = home_values.where(home, away_values)
-        sources[f"__{label}"] = label
 
     run_consensus = "ODDS_RUN_LINE_CONSENSUS_HOME_HANDICAP_NORMALIZED_MEDIAN"
     if run_consensus in closing:
         label = "ODDS_RUN_LINE_CONSENSUS_TEAM_HANDICAP_NORMALIZED_MEDIAN"
         home_values = game_ids.map(closing[run_consensus])
         context[f"__{label}"] = home_values.where(home, -home_values)
-        sources[f"__{label}"] = label
-
-    run_prob_columns = [
-        column
-        for column in closing.columns
-        if column.startswith("ODDS_RUN_LINE_")
-        and column.endswith("_FAIR_PROB_HOME_COVER")
-        and "_CONSENSUS_" not in column
-    ]
-    for home_column in run_prob_columns:
-        away_column = home_column.replace(
-            "_FAIR_PROB_HOME_COVER", "_FAIR_PROB_AWAY_COVER"
-        )
-        if away_column not in closing:
-            continue
-        label = home_column.replace("_FAIR_PROB_HOME_COVER", "_FAIR_PROB_TEAM_COVER")
-        context[f"__{label}"] = game_ids.map(closing[home_column]).where(
-            home, game_ids.map(closing[away_column])
-        )
-        sources[f"__{label}"] = label
-
-    money_prob_columns = [
-        column
-        for column in closing.columns
-        if column.startswith("ODDS_MONEY_LINE_")
-        and column.endswith("_FAIR_PROB_HOME_WIN")
-        and "_CONSENSUS_" not in column
-    ]
-    for home_column in money_prob_columns:
-        away_column = home_column.replace("_FAIR_PROB_HOME_WIN", "_FAIR_PROB_AWAY_WIN")
-        if away_column not in closing:
-            continue
-        label = home_column.replace("_FAIR_PROB_HOME_WIN", "_FAIR_PROB_TEAM_WIN")
-        context[f"__{label}"] = game_ids.map(closing[home_column]).where(
-            home, game_ids.map(closing[away_column])
-        )
         sources[f"__{label}"] = label
 
     money_consensus = "ODDS_MONEY_LINE_CONSENSUS_FAIR_PROB_HOME_WIN_MEDIAN"
@@ -784,16 +719,18 @@ def _wide_team_features(
     wide = home.merge(away, on="game_pk", how="inner", validate="one_to_one")
     wide = wide.rename(columns={"game_pk": "GAME_ID"})
 
-    differences: dict[str, pd.Series] = {}
-    for column in feature_columns:
-        home_column = f"{column}_TEAM_HOME"
-        away_column = f"{column}_TEAM_AWAY"
-        diff_column = (
-            column.removesuffix("_BEFORE") + "_DIFF_BEFORE"
-            if column.endswith("_BEFORE")
-            else f"{column}_DIFF_BEFORE"
-        )
-        differences[diff_column] = wide[home_column] - wide[away_column]
+    # ``HOME - AWAY`` is an exact linear combination of the two side columns.
+    # Emitting it for every feature tripled the width without adding rank, so
+    # only the hand-picked contrasts in DIFF_FEATURES are materialised.
+    missing = sorted(set(DIFF_FEATURES).difference(feature_columns))
+    if missing:
+        raise ValueError(f"DIFF_FEATURES names unknown rolling columns: {missing}")
+    differences = {
+        column.removesuffix("_BEFORE")
+        + "_DIFF_BEFORE": wide[f"{column}_TEAM_HOME"]
+        - wide[f"{column}_TEAM_AWAY"]
+        for column in DIFF_FEATURES
+    }
     if differences:
         wide = pd.concat([wide, pd.DataFrame(differences, index=wide.index)], axis=1)
     return wide
@@ -814,15 +751,17 @@ def build_team_rolling_features(
         **DERIVED_RATE_COLUMNS,
         **odds_sources,
     }
+    tiers = {**TEAM_ROLLING_TIERS, **ODDS_ROLLING_TIERS}
+    untiered = sorted({label for label in sources.values() if label not in tiers})
+    if untiered:
+        raise ValueError(
+            "Every rolled metric must declare a tier in TEAM_ROLLING_TIERS or "
+            f"ODDS_ROLLING_TIERS; missing: {untiered}"
+        )
     features: dict[str, pd.Series] = {}
     for source, label in sources.items():
         features.update(
-            _rolling_source_features(
-                context,
-                source,
-                label,
-                extended=label in EXTENDED_TEAM_LABELS or label.startswith("ODDS_"),
-            )
+            _rolling_source_features(context, source, label, tier=tiers[label])
         )
     context = pd.concat([context, pd.DataFrame(features, index=context.index)], axis=1)
     targets = (
@@ -858,7 +797,7 @@ def build_pregame_features(
     unlabeled = [
         column
         for column in output.columns
-        if not column.startswith(("GAME_", "ODDS_", "TEAM_", "SCHEDULE_", "TRAVEL_"))
+        if not column.startswith(FEATURE_FAMILY_PREFIXES)
     ]
     if unlabeled:
         raise ValueError(f"Unlabelled pregame feature columns: {unlabeled}")
@@ -872,10 +811,7 @@ def build_pregame_features(
     missing_temporal_tag = [
         column
         for column in output.columns
-        if (
-            column.startswith(("TEAM_", "SCHEDULE_", "TRAVEL_"))
-            and "_BEFORE" not in column
-        )
+        if (column.startswith(_HISTORICAL_FAMILY_PREFIXES) and "_BEFORE" not in column)
         or (
             column.startswith(("GAME_", "ODDS_"))
             and "_BEFORE" not in column
