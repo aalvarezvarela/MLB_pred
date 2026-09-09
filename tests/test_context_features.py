@@ -100,14 +100,42 @@ def _closing() -> pd.DataFrame:
     )
 
 
-def test_team_identity_one_hots_are_not_emitted():
-    """The 30-team one-hot block was removed; identity stays in metadata.
+def test_team_identity_one_hots_cover_every_franchise_on_both_sides():
+    """The 60-column block matches the NBA project's ``team_one_hot_features``."""
+    features = build_context_features(
+        _games(), _team_games(), _venues(), _closing()
+    ).set_index("GAME_ID")
 
-    Sixty binary club-identity columns over 17.6k training rows is an
-    invitation to memorise. ``GAME_HOME_TEAM_ID`` / ``GAME_AWAY_TEAM_ID``
-    survive so a model can encode identity its own way.
-    """
-    features = build_context_features(_games(), _team_games(), _venues(), _closing())
+    identity = [c for c in features.columns if c.startswith("TEAM_IDENTITY_")]
+    assert len(identity) == 60
+    # Every emitted identity column still declares the pregame contract.
+    assert all(column.endswith("_BEFORE") for column in identity)
+
+    # Game 2: Mets (121) home, Yankees (147) away.
+    assert features.at["2", "TEAM_IDENTITY_HOME_NEW_YORK_METS_BEFORE"] == 1
+    assert features.at["2", "TEAM_IDENTITY_AWAY_NEW_YORK_YANKEES_BEFORE"] == 1
+    assert features.at["2", "TEAM_IDENTITY_AWAY_NEW_YORK_METS_BEFORE"] == 0
+    assert features.at["2", "TEAM_IDENTITY_HOME_NEW_YORK_YANKEES_BEFORE"] == 0
+
+    # Game 4 flips the sides, so the same franchise moves column.
+    assert features.at["4", "TEAM_IDENTITY_HOME_NEW_YORK_YANKEES_BEFORE"] == 1
+    assert features.at["4", "TEAM_IDENTITY_AWAY_NEW_YORK_METS_BEFORE"] == 1
+
+    # Exactly one home and one away franchise is hot on every row.
+    home = [c for c in identity if c.startswith("TEAM_IDENTITY_HOME_")]
+    away = [c for c in identity if c.startswith("TEAM_IDENTITY_AWAY_")]
+    assert features[home].sum(axis=1).eq(1).all()
+    assert features[away].sum(axis=1).eq(1).all()
+
+
+def test_team_identity_block_can_be_switched_off():
+    features = build_context_features(
+        _games(),
+        _team_games(),
+        _venues(),
+        _closing(),
+        include_team_identity=False,
+    )
 
     assert not [c for c in features.columns if c.startswith("TEAM_IDENTITY_")]
 

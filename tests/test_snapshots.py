@@ -10,7 +10,9 @@ def test_empty_snapshot_is_persisted_as_negative_information(tmp_path, monkeypat
         type(archive.SETTINGS), "snapshot_path", property(lambda self: tmp_path)
     )
     captured = datetime(2025, 8, 1, 14, tzinfo=UTC)
-    path = archive._write_snapshot("lineups", date(2025, 8, 1), pd.DataFrame(), captured)
+    path = archive._write_snapshot(
+        "lineups", date(2025, 8, 1), pd.DataFrame(), captured
+    )
     assert path.exists()
 
     latest = archive.latest_snapshot_before(

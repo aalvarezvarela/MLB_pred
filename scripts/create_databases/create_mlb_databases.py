@@ -19,12 +19,8 @@ import argparse
 import sys
 
 from mlb_pred.postgre_db.config.db_config import connect_mlb_db, get_db_env
-from mlb_pred.postgre_db.odds_schema import (
-    create_schema as create_odds_schema,
-)
-from mlb_pred.postgre_db.odds_schema import (
-    drop_schema as drop_odds_schema,
-)
+from mlb_pred.postgre_db.odds_schema import create_schema as create_odds_schema
+from mlb_pred.postgre_db.odds_schema import drop_schema as drop_odds_schema
 from mlb_pred.postgre_db.schema import create_all_tables
 
 

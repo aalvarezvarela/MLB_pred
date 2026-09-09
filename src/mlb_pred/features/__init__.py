@@ -21,6 +21,10 @@ from mlb_pred.features.rolling_features import (
     build_team_rolling_features,
     write_pregame_feature_partitions,
 )
+from mlb_pred.features.roster_features import (
+    build_roster_features,
+    build_team_roster_features,
+)
 from mlb_pred.features.statcast_features import build_statcast_features
 
 __all__ = [
@@ -35,7 +39,9 @@ __all__ = [
     "build_statcast_features",
     "build_umpire_features",
     "build_pregame_features",
+    "build_roster_features",
     "build_team_rolling_features",
+    "build_team_roster_features",
     "select_closing_quotes",
     "write_pregame_feature_partitions",
 ]

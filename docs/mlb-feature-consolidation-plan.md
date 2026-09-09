@@ -369,7 +369,11 @@ distinct absence states that a single count cannot express.
 * `TEAM_RECORD_WINS_LAST_N` dropped (r = 1.000000 with the ratio).
 * Consensus statistics cut from seven to three (MEDIAN, STD, BOOK_COUNT).
 * Per-book columns confined to the four books quoting in every season.
-* The 30-team one-hot block removed.
+* The 30-team one-hot block removed. **Reinstated afterwards** as
+  `TEAM_IDENTITY_*` in `features/context_features.py`: it was cut here as
+  redundant width, never measured to cost anything, and the NBA project
+  keeps the equivalent block. Pass `include_team_identity=False` to
+  `build_context_features` for a run without it.
 * Market regime cut from 204 to 62: the calendar-day windows duplicated the
   game windows, and three EWM spans and three tail thresholds became one each.
 

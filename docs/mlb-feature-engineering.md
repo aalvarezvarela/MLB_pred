@@ -18,6 +18,8 @@ availability.
 - `TEAM_AVAILABILITY_*`: final-lineup availability, observed absences,
   transaction-confirmed IL absences, starting-pitcher quality, and historical
   player effects.
+- `TEAM_ROSTER_*`: playing-time-weighted continuity, incoming and net share,
+  computed separately for the batting and pitching units.
 - `SCHEDULE_*`: series position, rest, game density, and day-after-night flags.
 - `TRAVEL_*`: series travel, recent distance load, and timezone disruption.
 - `_TEAM_HOME` / `_TEAM_AWAY`: the side after the final team-game pivot.
@@ -102,6 +104,57 @@ coordinates and `log1p`; timezone changes use IANA zones on the game date and
 are neutralized after four days of adaptation. Missing coordinate/timezone
 flags distinguish a genuine zero trip from missing geography.
 
+## Roster continuity
+
+The port of the NBA repository's `roster_continuity` module. It answers how much
+of the playing time a club is fielding was already on the roster at an earlier
+reference point, how much was brought in from elsewhere, and the net of the two.
+Three things were reframed.
+
+**Two units, never pooled.** A basketball roster shares one pool of 240 minutes.
+A baseball roster is two disjoint groups, and a player almost never draws from
+both. Continuity is therefore computed twice -- hitters weighted by plate
+appearances, pitchers by batters faced -- and the two are never combined into a
+single number. Both are normalised by `TEAM_PLAYING_TIME_PER_GAME = 37.811`,
+measured on regular-season `team_games` for 2015-2026: a club sends 37.811
+batters to the plate per game and faces the same number, because every plate
+appearance taken by one side is a batter faced by the other.
+
+**Roster movement is published, not inferred.** `transactions` carries trades,
+waiver claims, signings, selections, recalls, options and releases, each with the
+`known_date` on which it was announced. That feed is the MLB counterpart of the
+NBA module's injury-report assignments, and it is what lets a player acquired at
+the deadline count as incoming before he has played a game for his new club.
+Movement that never touches a major-league roster -- an option to Triple-A, a
+minor-league signing -- is read as a *departure*, because `to_team_id` is then an
+affiliate rather than one of the thirty franchises.
+
+**The season is one calendar year.** The NBA module anchors its season-over-season
+window to March 15 of the preceding season. The MLB equivalent is August 1 of the
+previous calendar year: past the trade deadline, so the baseline is the roster the
+club actually finished the prior season with. The second, two-month horizon is
+used as-is when it lands in the season and snaps back to that same August 1 bound
+when it lands in the winter, so April games still have a usable baseline instead
+of a window covering an empty stretch of offseason.
+
+Twelve team-game columns result -- continuity, incoming and net, over two horizons,
+for each of the two units -- pivoted to `_TEAM_HOME` / `_TEAM_AWAY` plus the two
+continuity `_DIFF_BEFORE` contrasts.
+
+Two properties are worth knowing before reading the columns. A departed player is
+weighted by his playing time per *team* game, so his weight decays as the club
+plays on without him and full-window continuity drifts back toward 1.0; the
+two-month column is what keeps a recent shock visible. An incoming player is
+weighted by his rate during his stint at his previous club -- the club's games
+between his first and last appearance there -- rather than per appearance. Per
+appearance is what the NBA module does, where everyone is available every night,
+and it breaks on a pitching staff: a starter faces twenty-five batters every fifth
+day, and counting that as a per-game rate makes one incoming starter look like two
+thirds of a team's pitching.
+
+The first backfilled season has no prior-season baseline, so its full-window
+columns are `NaN` rather than a fabricated 1.0.
+
 ## Advanced game-level families
 
 All columns in these families contain `_BEFORE`, in addition to a selectable
@@ -145,13 +198,26 @@ timestamped lineup source.
 The three hitter states have deliberately different meanings:
 
 - `available` means the player appears in the final starting lineup;
-- `observed_absent` means a high-role candidate neither started nor appeared
-  in the game, but no known IL state explains the absence; and
+- `observed_absent` means a high-role candidate did not appear in the final
+  starting lineup, but no known IL state explains the absence; and
 - `injured` means the same kind of relevant absence is supported by an open IL
   transaction state.
 
 An observed absence is not an injury label. It may reflect rest, a coaching
-decision, a minor-league option, or another cause. IL state is reconstructed in
+decision, a minor-league option, or another cause.
+
+**Absence is decided from the starting lineup alone, never from the box
+score.** The definition previously also required that the player did not appear
+at all, so a rested regular who pinch-hit late was not counted absent. Whether
+a substitute enters is decided by the game being played -- a team empties its
+bench in a long or high-scoring one -- so that clause let the realised outcome
+back into a `_BEFORE` column. Measured over 55,434 team-games, non-starters
+appeared in games averaging 8.41 total runs when none appeared against 9.42
+when four or more did. Removing the clause halved
+`N_OBSERVED_ABSENT`'s correlation with total runs (-0.037 to -0.019) and cut
+its correlation with the absolute margin from +0.056 to -0.018. This is the
+same defect as treating "did not play" as "injured", which counts bench players
+whose appearance is itself a consequence of the scoreline. IL state is reconstructed in
 `known_date` and transaction-id order: placement opens it, transfer maintains
 it, and activation or reinstatement closes it. The direction comes from
 `type_desc` and `description`, because activation text also contains the words

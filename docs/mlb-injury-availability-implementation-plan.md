@@ -11,9 +11,16 @@ Three distinct states will be used:
 
 - `injured`: a player on an injury absence or injured list (IL) identified from
   transactions.
-- `observed_absent`: a relevant player who was not in the starting lineup and
-  did not make a game appearance. This can reflect an injury, rest, a coaching
-  decision, a minor-league option, or another reason.
+- `observed_absent`: a relevant player who was not in the starting lineup. This
+  can reflect an injury, rest, a coaching decision, a minor-league option, or
+  another reason.
+
+  > **Corrected after implementation.** This originally also required that the
+  > player "did not make a game appearance". That clause is not knowable before
+  > first pitch: whether a substitute enters is decided by the game being
+  > played. It is the same defect as treating "did not play" as "injured". See
+  > "Outcome leakage through substitute appearances" at the end of this
+  > document.
 - `available`: a player in the game's starting lineup.
 
 For historical data, the final lineup is deliberately accepted as a proxy for
@@ -185,3 +192,53 @@ The MVP requires no new external source:
 - `batter_games` and `pitcher_appearances` provide historical player statistics;
 - `transactions` contains IL placements, transfers, and activations;
 - closing lines allow effects against market error from 2019 onward.
+
+
+---
+
+## Outcome leakage through substitute appearances
+
+`missing` was computed as
+`expected_ids - starters - appearances`, where `appearances` was the target
+game's own box score. A rested regular who pinch-hit late was therefore not
+counted absent.
+
+That is post-game information. Substitutions are a consequence of the game:
+teams empty the bench in long or high-scoring games. Measured over 55,434
+team-games with both a lineup and a box score:
+
+| non-starters who appeared | team-games | mean total runs |
+|---|---:|---:|
+| 0 | 11,795 | 8.41 |
+| 1 | 12,505 | 8.73 |
+| 2 | 9,639 | 9.17 |
+| 3 | 6,243 | 9.22 |
+| 4+ | 15,250 | 9.42 |
+
+`corr(non-starters who appeared, total runs) = +0.111`.
+
+Effect of removing the clause, on the full 17,638-game frame:
+
+| | before | after |
+|---|---:|---:|
+| mean `N_OBSERVED_ABSENT` (home) | 1.324 | 1.708 |
+| corr with `TOTAL_RUNS` (home) | -0.0300 | -0.0188 |
+| corr with `\|margin\|` (home) | +0.0560 | -0.0177 |
+| corr with `TOTAL_RUNS` (home + away) | -0.0371 | -0.0192 |
+
+About 29% of genuine absences were being erased by a later substitute
+appearance. The residual -0.019 is the plausible causal effect a weaker lineup
+has on run scoring, which is what the feature is meant to carry.
+
+Pinned by `test_a_rested_regular_who_pinch_hits_is_still_counted_absent`, which
+fails on the old logic. The per-game appearance map is no longer built at all,
+so the box score is not in scope to be reached for again. The absence streak
+was aligned to count consecutive non-starts for the same reason.
+
+The pitcher path was checked and is unaffected: `PITCHER_N_INJURED` requires an
+open IL transaction state and is never inferred from "did not pitch".
+
+A sweep of all 1,031 model features found **no** non-market feature correlating
+with `TOTAL_RUNS` more strongly than the closing line itself, and the strongest
+are park run environment, team season scoring level and Statcast form -- all
+explainable as genuine pre-game signal.

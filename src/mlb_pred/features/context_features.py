@@ -8,12 +8,15 @@ before first pitch; realised game outcomes are never returned.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import datetime, time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
+
+from mlb_pred.config.constants import TEAM_ID_MAP, TEAM_ID_TO_NAME
 
 # Rest and travel are read as a home-versus-away contrast, and season win rate
 # is the standard form-gap column. Everything else keeps only its two side
@@ -492,6 +495,56 @@ def _add_win_features(log: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([out, pd.DataFrame(values, index=out.index)], axis=1)
 
 
+IDENTITY_PREFIX = "TEAM_IDENTITY_"
+
+
+def _team_slug(team_name: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", "_", team_name.upper()).strip("_")
+
+
+# One slug per franchise, ordered as the id map is, so the column block has a
+# stable shape no matter which teams appear in a given slice of games.
+TEAM_SLUGS: tuple[tuple[str, str], ...] = tuple(
+    (team_id, _team_slug(team_name)) for team_name, team_id in TEAM_ID_MAP.items()
+)
+
+
+def _add_team_identity(wide: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
+    """Add the 60-column home/away franchise one-hot block.
+
+    Club identity is not a fact about form, so it carries no history and needs
+    no date gate -- which side is batting last is known the moment the schedule
+    is published. It is tagged ``_BEFORE`` because the pregame contract requires
+    every ``TEAM_*`` column to declare its temporal status, and this one is
+    always available.
+    """
+    sides = games[["game_pk", "home_team_id", "away_team_id"]].copy()
+    sides["game_pk"] = sides["game_pk"].astype(str)
+    sides["home_team_id"] = sides["home_team_id"].astype(str)
+    sides["away_team_id"] = sides["away_team_id"].astype(str)
+    source = wide[["GAME_ID"]].merge(
+        sides, left_on="GAME_ID", right_on="game_pk", how="left", validate="one_to_one"
+    )
+
+    unknown = sorted(
+        set(source["home_team_id"])
+        .union(source["away_team_id"])
+        .difference(TEAM_ID_TO_NAME)
+    )
+    if unknown:
+        raise ValueError(f"Cannot one-hot unknown team ids: {unknown}")
+
+    columns = {}
+    for team_id, slug in TEAM_SLUGS:
+        columns[f"{IDENTITY_PREFIX}HOME_{slug}_BEFORE"] = (
+            source["home_team_id"].eq(team_id).astype("int8")
+        )
+        columns[f"{IDENTITY_PREFIX}AWAY_{slug}_BEFORE"] = (
+            source["away_team_id"].eq(team_id).astype("int8")
+        )
+    return pd.concat([wide, pd.DataFrame(columns, index=wide.index)], axis=1)
+
+
 def _wide_team_features(
     team_rows: pd.DataFrame, target_game_ids: set[str]
 ) -> pd.DataFrame:
@@ -545,13 +598,17 @@ def build_context_features(
     closing_features: pd.DataFrame,
     *,
     target_game_ids: Iterable[str] | None = None,
+    include_team_identity: bool = True,
 ) -> pd.DataFrame:
-    """Build schedule, travel and win-form features for the target games.
+    """Build identity, schedule, travel and win-form features for the targets.
 
-    The 30-team one-hot block was removed: 60 binary columns of club identity
-    over 17,638 rows is an invitation to memorise, and ``GAME_HOME_TEAM_ID`` /
-    ``GAME_AWAY_TEAM_ID`` survive as metadata for any model that wants to
-    encode team identity its own way.
+    The 60-column ``TEAM_IDENTITY_*`` one-hot block matches the NBA project's
+    ``team_one_hot_features``. It was dropped once during feature consolidation
+    as redundant width -- 60 binary columns over 17,638 rows -- but it was never
+    measured to cost anything, and a linear model has no other way to learn that
+    Coors Field's tenant scores differently from Oakland's. Pass
+    ``include_team_identity=False`` for a run that wants only the metadata
+    columns ``GAME_HOME_TEAM_ID`` / ``GAME_AWAY_TEAM_ID``.
     """
     targets = (
         {str(value) for value in target_game_ids}
@@ -561,4 +618,7 @@ def build_context_features(
     log = _build_team_log(games, team_games, venues)
     log = _add_schedule_features(log)
     log = _add_win_features(log)
-    return _wide_team_features(log, targets)
+    wide = _wide_team_features(log, targets)
+    if include_team_identity:
+        wide = _add_team_identity(wide, games)
+    return wide

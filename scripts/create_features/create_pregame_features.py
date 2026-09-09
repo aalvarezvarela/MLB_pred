@@ -22,6 +22,7 @@ from mlb_pred.features.rolling_features import (
     build_team_rolling_features,
     write_pregame_feature_partitions,
 )
+from mlb_pred.features.roster_features import build_roster_features
 from mlb_pred.features.statcast_features import build_statcast_features
 from mlb_pred.local_store.parquet_store import read_table
 
@@ -106,6 +107,15 @@ def main() -> None:
     context = context.merge(
         availability, on="GAME_ID", how="left", validate="one_to_one"
     )
+    roster = build_roster_features(
+        team_games,
+        batter_games,
+        pitcher_appearances,
+        closing,
+        transactions,
+        target_game_ids=target_closing["GAME_ID"],
+    )
+    context = context.merge(roster, on="GAME_ID", how="left", validate="one_to_one")
 
     # Families built from sources the feature layer previously never read.
     # Each is keyed on GAME_ID and merged left, so a game missing from one

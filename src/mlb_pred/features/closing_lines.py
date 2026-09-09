@@ -106,7 +106,7 @@ def _book_label(book_slug: object) -> str:
     return "".join(character if character.isalnum() else "_" for character in label)
 
 
-def _decode_lines(values: pd.Series) -> pd.Series:
+def decode_lines(values: pd.Series) -> pd.Series:
     encoded = pd.to_numeric(values, errors="coerce").astype("float64")
     invalid = encoded.notna() & ~np.isclose(encoded, np.round(encoded), atol=1e-10)
     if invalid.any():
@@ -118,9 +118,9 @@ def _decode_lines(values: pd.Series) -> pd.Series:
     return encoded / LINE_SCALE
 
 
-def _assert_structural_market_invariants(ticks: pd.DataFrame) -> None:
-    left = _decode_lines(ticks["left_line"])
-    right = _decode_lines(ticks["right_line"])
+def assert_structural_market_invariants(ticks: pd.DataFrame) -> None:
+    left = decode_lines(ticks["left_line"])
+    right = decode_lines(ticks["right_line"])
 
     totals = ticks["market"].eq(MARKET_TOTALS) & left.notna() & right.notna()
     bad_totals = totals & ~np.isclose(left, right, rtol=0.0, atol=1e-10)
@@ -164,7 +164,7 @@ def select_closing_quotes(
     unknown_markets = sorted(set(ticks["market"].dropna()) - set(SUPPORTED_MARKETS))
     if unknown_markets:
         raise ValueError(f"Unsupported market(s): {unknown_markets}")
-    _assert_structural_market_invariants(ticks)
+    assert_structural_market_invariants(ticks)
 
     fair_prices = devig_two_way_series(ticks["left_price"], ticks["right_price"])
     prices_complete = fair_prices[["fair_left", "fair_right"]].notna().all(axis=1)
@@ -186,8 +186,8 @@ def select_closing_quotes(
         .tail(1)
         .copy()
     )
-    closing["left_line"] = _decode_lines(closing["left_line"])
-    closing["right_line"] = _decode_lines(closing["right_line"])
+    closing["left_line"] = decode_lines(closing["left_line"])
+    closing["right_line"] = decode_lines(closing["right_line"])
     closing["left_price"] = pd.to_numeric(
         closing["left_price"], errors="coerce"
     ).astype("float64")

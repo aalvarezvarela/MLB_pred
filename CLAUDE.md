@@ -63,15 +63,32 @@ is deliberately not ported.)
     `rolling_features.py` builds shifted team-game rolling history under the
     three-tier window scheme and pivots it into `_TEAM_HOME` / `_TEAM_AWAY`
     (plus hand-picked `_DIFF_BEFORE` contrasts);
-    `context_features.py` adds win record/streaks, schedule density, rest, and
-    series-aware travel;
+    `context_features.py` adds team-identity one-hots, win record/streaks,
+    schedule density, rest, and series-aware travel;
+    `roster_features.py` builds playing-time-weighted roster continuity,
+    incoming and net share over two horizons, separately for the batting and
+    pitching units, reading announced movement from `transactions` on
+    `known_date`;
     `market_movement.py` reads the tick path for opening line, open-to-close
     drift, late movement and cross-book disagreement;
+    `line_snapshots.py` builds the same tick store's as-of view at every
+    horizon on a pre-game grid, so a model can be trained to bet when it
+    actually bets rather than only at the close;
+    `line_movement.py` accumulates the tick path per series and attaches it to
+    each snapshot, answering trailing windows with a second as-of read;
+    `line_cross_book.py` reduces that panel to consensus, dispersion, steam and
+    per-book deviation at each horizon;
     `environment_features.py` derives park geometry and expanding venue and
     home-plate-umpire run environments;
     `statcast_features.py` builds xwOBA-based team form for and against;
     `bullpen_features.py` derives relief workload and quality from
     `pitcher_appearances`.
+  - `create_training_data/intermediate_frame.py` — the (game, snapshot) join
+    boundary. The market quote **as of each pre-game horizon** anchors the
+    target; the closing quote, the raw timestamps and the moneyline block are
+    split into a physically separate scoring sidecar. Availability, umpire and
+    open-to-close movement families are excluded because their publication time
+    cannot be reconstructed.
   - `create_training_data/training_frame.py` — the sole feature/score join
     boundary. Recomputes and verifies `TOTAL_RUNS`, `RUN_LINE_MARGIN`,
     `LINE_ERROR`, and `SPREAD_ERROR`, and exposes the outcome-safe model feature
@@ -87,6 +104,8 @@ is deliberately not ported.)
   - `create_features/create_closing_lines.py`,
     `create_features/create_pregame_features.py`
   - `create_train_data/create_train_data.py`
+  - `create_train_data/create_intermediate_line_data.py` (`--market
+    totals|run_line`; writes a training CSV and a `_scoring` sidecar)
 - `data/` — local raw copy, **gitignored and regenerable**. Parquet,
   partitioned by season.
 - `tests/` — pytest, one file per concern.

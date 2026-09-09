@@ -687,3 +687,73 @@ def test_missing_lineup_reports_no_coverage_instead_of_inventing_absences():
         features.loc["2", "TEAM_AVAILABILITY_HITTER_LINEUP_COVERAGE_BEFORE_TEAM_AWAY"]
         == 1
     )
+
+
+def test_a_rested_regular_who_pinch_hits_is_still_counted_absent():
+    """Absence is decided by the starting lineup, never by the box score.
+
+    Whether a substitute enters is decided *by the game being played*: a team
+    empties its bench in a long or high-scoring one. Subtracting this game's
+    appearances therefore let the realised outcome back into a ``_BEFORE``
+    column -- the same defect as counting "did not play" as "injured".
+
+    STAR is a regular who is rested on 2025-04-03 but pinch-hits. He must be
+    reported absent, because pre-game the only evidence is that he did not
+    start.
+    """
+    games = pd.DataFrame(
+        [
+            _game("1", "2025-04-01", 2025),
+            _game("2", "2025-04-02", 2025),
+            _game("3", "2025-04-03", 2025),
+        ]
+    )
+    lineups = pd.DataFrame(
+        [
+            _lineup("1", "2025-04-01", "A", "STAR"),
+            _lineup("1", "2025-04-01", "B", "B1"),
+            _lineup("2", "2025-04-02", "A", "STAR"),
+            _lineup("2", "2025-04-02", "B", "B1"),
+            # Game 3: STAR is rested, REPLACEMENT starts in his place.
+            _lineup("3", "2025-04-03", "A", "REPLACEMENT"),
+            _lineup("3", "2025-04-03", "B", "B1"),
+        ]
+    )
+    batters = pd.DataFrame(
+        [
+            _batter("1", "2025-04-01", 2025, "A", "STAR", hits=2),
+            _batter("1", "2025-04-01", 2025, "B", "B1"),
+            _batter("2", "2025-04-02", 2025, "A", "STAR", hits=2),
+            _batter("2", "2025-04-02", 2025, "B", "B1"),
+            _batter("3", "2025-04-03", 2025, "A", "REPLACEMENT"),
+            # STAR came off the bench late -- knowable only after the game.
+            _batter("3", "2025-04-03", 2025, "A", "STAR", hits=1),
+            _batter("3", "2025-04-03", 2025, "B", "B1"),
+        ]
+    )
+    pitchers = pd.DataFrame(
+        [
+            _pitcher("1", "2025-04-01", 2025, "A", "SP-A", starter=True),
+            _pitcher("1", "2025-04-01", 2025, "B", "SP-B", starter=True),
+            _pitcher("2", "2025-04-02", 2025, "A", "SP-A", starter=True),
+            _pitcher("2", "2025-04-02", 2025, "B", "SP-B", starter=True),
+            _pitcher("3", "2025-04-03", 2025, "A", "SP-A", starter=True),
+            _pitcher("3", "2025-04-03", 2025, "B", "SP-B", starter=True),
+        ]
+    )
+    closing = pd.DataFrame({"GAME_ID": ["1", "2", "3"]})
+
+    features = build_availability_features(
+        games,
+        lineups,
+        batters,
+        pitchers,
+        pd.DataFrame(),
+        closing,
+        target_game_ids=["3"],
+    ).set_index("GAME_ID")
+
+    absent = "TEAM_AVAILABILITY_HITTER_N_OBSERVED_ABSENT_BEFORE_TEAM_HOME"
+    assert features.loc["3", absent] == 1
+    # No transaction places him on the IL, so he is rested, not injured.
+    assert features.loc["3", "TEAM_AVAILABILITY_HITTER_N_INJURED_BEFORE_TEAM_HOME"] == 0

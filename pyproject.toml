@@ -75,7 +75,8 @@ show_error_codes = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not live'"
+addopts = "-m 'not live and not store'"
 markers = [
   "live: hits the MLB Stats API over the network (run with -m live)",
+  "store: reads the local Parquet store under data/ (run with -m store)",
 ]

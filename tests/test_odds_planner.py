@@ -110,9 +110,7 @@ def test_an_empty_odds_store_makes_everything_a_gap(games):
 
 
 def test_dimension_without_ticks_or_explicit_completion_remains_a_gap(games):
-    fetches = pd.DataFrame(
-        [{"game_pk": "1", "ingest_status": "complete"}]
-    )
+    fetches = pd.DataFrame([{"game_pk": "1", "ingest_status": "complete"}])
     dates, missing = gap_dates(
         games,
         _odds_games(["1", "2", "3"]),

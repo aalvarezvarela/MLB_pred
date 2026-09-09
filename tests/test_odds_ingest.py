@@ -193,7 +193,9 @@ def test_stats_account_for_every_source_row():
     stats = IngestStats()
     ticks = [
         _tick(minute=1),
-        _tick(minute=2, left_line=None, right_line=None, left_price=None, right_price=None),
+        _tick(
+            minute=2, left_line=None, right_line=None, left_price=None, right_price=None
+        ),
         _tick(minute=3, market=MARKET_RUN_LINE, left_line=1.5, right_line=1.5),
     ]
     rows = tick_rows_for_game(_game(*ticks), "1", stats)
